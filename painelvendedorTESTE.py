@@ -43,7 +43,7 @@ def carregar_solicitacoes_fotos():
         df = conn.read(worksheet="Solicitacoes_Fotos", ttl=0)
         # Força a coluna Lote a ser texto para não perder zeros na visualização
         if not df.empty and "Lote" in df.columns:
-            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") # Remove aspa se tiver, pra ficar bonito
+            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
     except Exception:
         return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
@@ -320,6 +320,8 @@ def exibir_aba_certificados(is_admin=False):
         col_c1, col_c2 = st.columns([1, 2])
         with col_c1:
             lote_cert = st.text_input("Lote / Bobina (Certificado):")
+            # LEGENDA EXPLICATIVA ADICIONADA AQUI
+            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
         with col_c2:
             email_padrao = st.session_state.get('usuario_email', '')
             email_cert = st.text_input("Enviar para o e-mail:", value=email_padrao, key="email_cert_input")
