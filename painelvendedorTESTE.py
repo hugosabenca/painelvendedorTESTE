@@ -41,6 +41,9 @@ def carregar_solicitacoes_fotos():
     """Carrega a lista de pedidos de fotos"""
     try:
         df = conn.read(worksheet="Solicitacoes_Fotos", ttl=0)
+        # Força a coluna Lote a ser texto para não perder zeros na visualização
+        if not df.empty and "Lote" in df.columns:
+            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") # Remove aspa se tiver, pra ficar bonito
         return df
     except Exception:
         return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
@@ -49,6 +52,9 @@ def carregar_solicitacoes_certificados():
     """Carrega a lista de pedidos de certificados"""
     try:
         df = conn.read(worksheet="Solicitacoes_Certificados", ttl=0)
+        # Força a coluna Lote a ser texto para não perder zeros na visualização
+        if not df.empty and "Lote" in df.columns:
+            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
     except Exception:
         return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
@@ -81,11 +87,14 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
         if df_existente.empty and "Data" not in df_existente.columns:
              df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
+        # TRUQUE DO ZERO: Adiciona ' antes do lote para o Excel respeitar o texto
+        lote_formatado = f"'{lote}"
+
         nova_linha = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Vendedor": vendedor_nome,
             "Email": vendedor_email,
-            "Lote": lote,
+            "Lote": lote_formatado,
             "Status": "Pendente"
         }])
         
@@ -107,11 +116,14 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         if df_existente.empty and "Data" not in df_existente.columns:
              df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
+        # TRUQUE DO ZERO: Adiciona ' antes do lote para o Excel respeitar o texto
+        lote_formatado = f"'{lote}"
+
         nova_linha = pd.DataFrame([{
             "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Vendedor": vendedor_nome,
             "Email": vendedor_email,
-            "Lote": lote,
+            "Lote": lote_formatado,
             "Status": "Pendente"
         }])
         
@@ -282,7 +294,14 @@ def exibir_aba_fotos(is_admin=False):
         st.markdown("### 🛠️ Gestão de Pedidos de Fotos (Visão Admin)")
         df_fotos = carregar_solicitacoes_fotos()
         if not df_fotos.empty:
-            st.dataframe(df_fotos, use_container_width=True)
+            # Configuração para mostrar Lote como texto
+            st.dataframe(
+                df_fotos, 
+                use_container_width=True,
+                column_config={
+                    "Lote": st.column_config.TextColumn("Lote"),
+                }
+            )
             if st.button("Atualizar Lista de Fotos"):
                 st.cache_data.clear()
                 st.rerun()
@@ -326,7 +345,13 @@ def exibir_aba_certificados(is_admin=False):
         st.markdown("### 🛠️ Gestão de Pedidos de Certificados (Visão Admin)")
         df_cert = carregar_solicitacoes_certificados()
         if not df_cert.empty:
-            st.dataframe(df_cert, use_container_width=True)
+            st.dataframe(
+                df_cert, 
+                use_container_width=True,
+                column_config={
+                    "Lote": st.column_config.TextColumn("Lote"),
+                }
+            )
             if st.button("Atualizar Lista de Certificados"):
                 st.cache_data.clear()
                 st.rerun()
