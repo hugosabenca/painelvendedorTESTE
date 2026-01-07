@@ -19,7 +19,9 @@ except Exception:
 # --- CONEXÃO COM GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- FUNÇÕES DE CARREGAMENTO E SALVAMENTO ---
+# ==============================================================================
+# FUNÇÕES DE BANCO DE DADOS (CARREGAR E SALVAR)
+# ==============================================================================
 
 def carregar_usuarios():
     try:
@@ -41,7 +43,6 @@ def carregar_solicitacoes_fotos():
     """Carrega a lista de pedidos de fotos"""
     try:
         df = conn.read(worksheet="Solicitacoes_Fotos", ttl=0)
-        # Força a coluna Lote a ser texto para não perder zeros na visualização
         if not df.empty and "Lote" in df.columns:
             df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
@@ -52,12 +53,50 @@ def carregar_solicitacoes_certificados():
     """Carrega a lista de pedidos de certificados"""
     try:
         df = conn.read(worksheet="Solicitacoes_Certificados", ttl=0)
-        # Força a coluna Lote a ser texto para não perder zeros na visualização
         if not df.empty and "Lote" in df.columns:
             df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
     except Exception:
         return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+
+def carregar_logs_acessos():
+    """Carrega o histórico de logins"""
+    try:
+        df = conn.read(worksheet="Acessos", ttl=0)
+        # Ordena do mais recente para o mais antigo, se tiver dados
+        if not df.empty and "Data" in df.columns:
+             # Tenta converter para data para ordenar, se falhar mantem como string
+             try:
+                 df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
+                 df = df.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
+             except:
+                 pass
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["Data", "Login", "Nome"])
+
+def registrar_acesso(login, nome):
+    """Salva o log de acesso na planilha"""
+    try:
+        try:
+            df_logs = conn.read(worksheet="Acessos", ttl=0)
+        except:
+            df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
+            
+        if df_logs.empty and "Data" not in df_logs.columns:
+             df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
+
+        novo_log = pd.DataFrame([{
+            "Data": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "Login": login,
+            "Nome": nome
+        }])
+        
+        df_final = pd.concat([df_logs, novo_log], ignore_index=True)
+        conn.update(worksheet="Acessos", data=df_final)
+    except Exception as e:
+        # Falha silenciosa para não travar o login do usuário
+        print(f"Erro ao registrar log: {e}")
 
 def salvar_nova_solicitacao(nome, email, login, senha):
     try:
@@ -87,7 +126,6 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
         if df_existente.empty and "Data" not in df_existente.columns:
              df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
-        # TRUQUE DO ZERO: Adiciona ' antes do lote para o Excel respeitar o texto
         lote_formatado = f"'{lote}"
 
         nova_linha = pd.DataFrame([{
@@ -106,7 +144,6 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
         return False
 
 def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
-    """Salva o pedido de certificado na aba específica"""
     try:
         try:
             df_existente = conn.read(worksheet="Solicitacoes_Certificados", ttl=0)
@@ -116,7 +153,6 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         if df_existente.empty and "Data" not in df_existente.columns:
              df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
-        # TRUQUE DO ZERO: Adiciona ' antes do lote para o Excel respeitar o texto
         lote_formatado = f"'{lote}"
 
         nova_linha = pd.DataFrame([{
@@ -167,7 +203,10 @@ def formatar_peso_brasileiro(valor):
     except:
         return str(valor)
 
-# --- FUNÇÃO PRINCIPAL DE EXIBIÇÃO DA CARTEIRA ---
+# ==============================================================================
+# FUNÇÕES DE EXIBIÇÃO (UI)
+# ==============================================================================
+
 def exibir_carteira_pedidos():
     titulo_prefixo = "Carteira de Pedidos"
     tipo_usuario = st.session_state['usuario_tipo'].lower()
@@ -180,7 +219,6 @@ def exibir_carteira_pedidos():
     df_total = carregar_dados_pedidos()
 
     if df_total is not None and not df_total.empty:
-        
         df_total = df_total.dropna(subset=["Número do Pedido"])
         df_total = df_total[df_total["Número do Pedido"].astype(str).str.strip() != ""]
         df_total = df_total[~df_total["Número do Pedido"].astype(str).str.lower().isin(["none", "nan"])]
@@ -196,13 +234,11 @@ def exibir_carteira_pedidos():
                 df_filtrado = df_total[df_total["Vendedor Correto"].astype(str) == filtro_vendedor].copy()
             else:
                 df_filtrado = df_total.copy()
-                
         elif tipo_usuario == "gerente comercial":
             if "Gerente Correto" in df_total.columns:
                 df_filtrado = df_total[df_total["Gerente Correto"].astype(str).str.lower() == nome_filtro.lower()].copy()
             else:
                 df_filtrado = pd.DataFrame()
-
         else:
             df_filtrado = df_total[df_total["Vendedor Correto"].astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False)].copy()
 
@@ -211,12 +247,10 @@ def exibir_carteira_pedidos():
         else:
             df_filtrado['Quantidade_Num'] = pd.to_numeric(df_filtrado['Quantidade'], errors='coerce').fillna(0)
             df_filtrado['Peso (ton)'] = df_filtrado['Quantidade_Num'].apply(formatar_peso_brasileiro)
-            
             df_filtrado['Prazo'] = pd.to_datetime(df_filtrado['Prazo'], dayfirst=True, errors='coerce')
             df_filtrado['Prazo'] = df_filtrado['Prazo'].dt.strftime('%d/%m/%Y').fillna("-")
 
             colunas_visiveis = ["Número do Pedido", "Cliente Correto", "Produto", "Peso (ton)", "Prazo", "Máquina/Processo"]
-            
             if tipo_usuario in ["admin", "gerente", "gerente comercial"]:
                 colunas_visiveis.insert(5, "Vendedor Correto")
             
@@ -247,9 +281,7 @@ def exibir_carteira_pedidos():
                 df_exibicao, 
                 hide_index=True,
                 use_container_width=True,
-                column_config={
-                    "Prazo": st.column_config.TextColumn("Previsão"),
-                }
+                column_config={"Prazo": st.column_config.TextColumn("Previsão")}
             )
             
             if texto_busca and df_exibicao.empty:
@@ -257,14 +289,13 @@ def exibir_carteira_pedidos():
     else:
         st.error("Não foi possível carregar a planilha de pedidos.")
 
-# --- FUNÇÃO: ABA DE FOTOS ---
+# --- FUNÇÃO: ABA DE FOTOS (OCULTA NO MOMENTO, MAS CÓDIGO MANTIDO) ---
 def exibir_aba_fotos(is_admin=False):
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
     st.markdown("""
         Digite o número do Lote/Bobina abaixo para solicitar fotos de materiais defeituosos.
         Se encontrarmos o registro, enviaremos as fotos para o seu e-mail.
     """)
-    
     with st.form("form_foto"):
         col_f1, col_f2 = st.columns([1, 2])
         with col_f1:
@@ -272,20 +303,14 @@ def exibir_aba_fotos(is_admin=False):
         with col_f2:
             email_padrao = st.session_state.get('usuario_email', '')
             email_input = st.text_input("Enviar para o e-mail:", value=email_padrao)
-            
         btn_pedir_foto = st.form_submit_button("Solicitar Fotos", type="primary")
-        
         if btn_pedir_foto:
             if not lote_input:
                 st.warning("Por favor, digite o número do lote.")
             elif not email_input:
                 st.warning("Por favor, preencha o e-mail.")
             else:
-                sucesso = salvar_solicitacao_foto(
-                    st.session_state['usuario_nome'], 
-                    email_input, 
-                    lote_input
-                )
+                sucesso = salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_input)
                 if sucesso:
                     st.success(f"Solicitação do lote **{lote_input}** enviada! Verifique seu e-mail em breve.")
 
@@ -294,21 +319,14 @@ def exibir_aba_fotos(is_admin=False):
         st.markdown("### 🛠️ Gestão de Pedidos de Fotos (Visão Admin)")
         df_fotos = carregar_solicitacoes_fotos()
         if not df_fotos.empty:
-            # Configuração para mostrar Lote como texto
-            st.dataframe(
-                df_fotos, 
-                use_container_width=True,
-                column_config={
-                    "Lote": st.column_config.TextColumn("Lote"),
-                }
-            )
+            st.dataframe(df_fotos, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
             if st.button("Atualizar Lista de Fotos"):
                 st.cache_data.clear()
                 st.rerun()
         else:
             st.info("Nenhum pedido de foto registrado ainda.")
 
-# --- FUNÇÃO: ABA DE CERTIFICADOS (NOVA) ---
+# --- FUNÇÃO: ABA DE CERTIFICADOS ---
 def exibir_aba_certificados(is_admin=False):
     st.subheader("📑 Solicitação de Certificados de Qualidade")
     st.markdown("""
@@ -320,7 +338,6 @@ def exibir_aba_certificados(is_admin=False):
         col_c1, col_c2 = st.columns([1, 2])
         with col_c1:
             lote_cert = st.text_input("Lote / Bobina (Certificado):")
-            # LEGENDA EXPLICATIVA ADICIONADA AQUI
             st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
         with col_c2:
             email_padrao = st.session_state.get('usuario_email', '')
@@ -350,16 +367,13 @@ def exibir_aba_certificados(is_admin=False):
             st.dataframe(
                 df_cert, 
                 use_container_width=True,
-                column_config={
-                    "Lote": st.column_config.TextColumn("Lote"),
-                }
+                column_config={"Lote": st.column_config.TextColumn("Lote")}
             )
             if st.button("Atualizar Lista de Certificados"):
                 st.cache_data.clear()
                 st.rerun()
         else:
             st.info("Nenhum pedido de certificado registrado ainda.")
-
 
 # --- GESTÃO DE ESTADO (SESSÃO) ---
 if 'logado' not in st.session_state:
@@ -400,6 +414,7 @@ if not st.session_state['logado']:
             if not nome_completo or not email_user or not novo_login or not nova_senha:
                 st.warning("Por favor, preencha todos os campos.")
             else:
+                # Verificações de cadastro...
                 df_users = carregar_usuarios()
                 login_existe = False
                 if not df_users.empty and 'Login' in df_users.columns:
@@ -409,18 +424,9 @@ if not st.session_state['logado']:
                 if login_existe:
                     st.error("Este login já está em uso por outro usuário. Escolha outro.")
                 else:
-                    df_solic = carregar_solicitacoes()
-                    solic_existe = False
-                    if not df_solic.empty and 'Login' in df_solic.columns:
-                        if novo_login.lower() in df_solic['Login'].str.lower().values:
-                            solic_existe = True
-                    
-                    if solic_existe:
-                        st.warning("Já existe uma solicitação pendente para este login. Aguarde a aprovação.")
-                    else:
-                        sucesso = salvar_nova_solicitacao(nome_completo, email_user, novo_login, nova_senha)
-                        if sucesso:
-                            st.success("✅ Solicitação enviada com sucesso! Aguarde um e-mail informando quando seu cadastro estiver concluído.")
+                    sucesso = salvar_nova_solicitacao(nome_completo, email_user, novo_login, nova_senha)
+                    if sucesso:
+                        st.success("✅ Solicitação enviada com sucesso! Aguarde um e-mail informando quando seu cadastro estiver concluído.")
     
     else:
         st.title("🔒 Login - Painel do Vendedor - Dox Brasil")
@@ -451,6 +457,10 @@ if not st.session_state['logado']:
                              st.session_state['usuario_email'] = "" 
 
                         st.session_state['usuario_tipo'] = dados_user['Tipo']
+                        
+                        # LOG DE ACESSO: Salva na planilha quem entrou e quando
+                        registrar_acesso(usuario_input, dados_user['Nome Vendedor'])
+                        
                         st.rerun()
                     else:
                         st.error("Login ou Senha incorretos.")
@@ -482,13 +492,14 @@ else:
 
     # --- DEFINIÇÃO DO CONTEÚDO PRINCIPAL (ABAS) ---
     
-    # 1. PERFIL ADMIN: VÊ 4 ABAS (Carteira, Acessos, Fotos, Certificados)
+    # 1. PERFIL ADMIN: VÊ 4 ABAS (Carteira, Cadastros, Certificados, Acessos)
+    #    OBS: A aba Fotos foi removida daqui por solicitação.
     if st.session_state['usuario_tipo'].lower() == "admin":
         aba1, aba2, aba3, aba4 = st.tabs([
             "📂 Carteira de Pedidos", 
             "📝 Solicitações de Acesso", 
-            "📷 Fotos (RDQ)",
-            "📑 Certificados"
+            "📑 Certificados",
+            "🔍 Histórico de Acessos"
         ])
         
         with aba1:
@@ -507,16 +518,24 @@ else:
                 st.info("Nenhuma solicitação pendente.")
 
         with aba3:
-            exibir_aba_fotos(is_admin=True)
-            
-        with aba4:
             exibir_aba_certificados(is_admin=True)
 
-    # 2. OUTROS PERFIS: VÊ 3 ABAS (Carteira, Fotos, Certificados)
+        with aba4:
+            st.subheader("🔍 Histórico de Logins no Sistema")
+            df_logs = carregar_logs_acessos()
+            if not df_logs.empty:
+                st.dataframe(df_logs, use_container_width=True, hide_index=True)
+                if st.button("Atualizar Logs"):
+                    st.cache_data.clear()
+                    st.rerun()
+            else:
+                st.info("Nenhum registro de acesso encontrado.")
+
+    # 2. OUTROS PERFIS: VÊ 2 ABAS (Carteira, Certificados)
+    #    OBS: A aba Fotos foi removida daqui.
     else:
-        aba1, aba2, aba3 = st.tabs([
+        aba1, aba2 = st.tabs([
             "📂 Carteira de Pedidos", 
-            "📷 Fotos (RDQ)",
             "📑 Certificados"
         ])
         
@@ -524,7 +543,4 @@ else:
             exibir_carteira_pedidos()
             
         with aba2:
-            exibir_aba_fotos(is_admin=False)
-            
-        with aba3:
             exibir_aba_certificados(is_admin=False)
