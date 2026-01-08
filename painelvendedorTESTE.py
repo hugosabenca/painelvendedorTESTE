@@ -3,20 +3,21 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 import pytz
+import altair as alt  # Biblioteca para gráficos bonitos e personalizados
 
 # ==============================================================================
-# CONFIGURAÇÕES GERAIS
+# CONFIGURAÇÕES GERAIS E ÍCONE
 # ==============================================================================
 st.set_page_config(
     page_title="Painel do Vendedor Dox",
-    page_icon="logodox.png",
+    page_icon="logodox.png",  # Garante que o ícone seja o logo
     layout="wide"
 )
 
 # Define o Fuso Horário do Brasil
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
-# --- LOGO NO MENU ---
+# Tenta exibir o logo no topo da barra lateral (novo recurso do Streamlit)
 try:
     st.logo("logodox.png")
 except Exception:
@@ -31,7 +32,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados_faturamento_nuvem():
     """
-    Lê a aba 'Dados_Faturamento' que foi alimentada pelo Robô local.
+    Lê a aba 'Dados_Faturamento' e prepara os dados para o gráfico (7 dias fixos).
     """
     try:
         # Lê a aba alimentada pelo Robô
@@ -40,34 +41,30 @@ def carregar_dados_faturamento_nuvem():
         if df.empty:
             return pd.DataFrame()
 
-        # Tratamento de dados para garantir que o gráfico funcione
-        # As colunas esperadas são: FILIAL, DATA_EMISSAO, TONS
-        
-        # 1. Converter TONS para numérico (substitui vírgula por ponto se precisar)
+        # 1. Tratamento básico
         if df['TONS'].dtype == object:
              df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
         df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
-        
-        # 2. Converter Data (esperado dd/mm/aaaa)
         df['DATA_EMISSAO'] = pd.to_datetime(df['DATA_EMISSAO'], format='%d/%m/%Y', errors='coerce')
         
-        # 3. Filtrar últimos 7 dias (garantia visual)
+        # 2. CRIAR RÉGUA DE DATAS (ÚLTIMOS 7 DIAS FIXOS)
         hoje = datetime.now()
-        data_limite = hoje - timedelta(days=7)
-        df_filtrado = df[df['DATA_EMISSAO'] >= data_limite].copy()
+        # Lista dos últimos 7 dias (do mais antigo para o mais novo)
+        datas_fixas = [(hoje - timedelta(days=i)).strftime('%d/%m/%Y') for i in range(6, -1, -1)]
         
-        # 4. Agrupar por Dia
-        df_filtrado['Data_Str'] = df_filtrado['DATA_EMISSAO'].dt.strftime('%d/%m/%Y')
-        df_agrupado = df_filtrado.groupby('Data_Str')[['TONS']].sum().reset_index()
+        # Cria um DataFrame base só com as datas (para garantir que dias zerados apareçam)
+        df_base = pd.DataFrame({'Data_Str': datas_fixas})
         
-        # 5. Ordenar cronologicamente
-        df_agrupado['Data_Sort'] = pd.to_datetime(df_agrupado['Data_Str'], format='%d/%m/%Y')
-        df_agrupado = df_agrupado.sort_values('Data_Sort').drop(columns=['Data_Sort'])
+        # 3. Preparar dados do banco
+        df['Data_Str'] = df['DATA_EMISSAO'].dt.strftime('%d/%m/%Y')
+        df_agrupado = df.groupby('Data_Str')[['TONS']].sum().reset_index()
         
-        # Define o índice para o gráfico usar como eixo X
-        df_agrupado = df_agrupado.set_index('Data_Str')
+        # 4. CRUZAMENTO (MERGE)
+        # Junta a régua de datas com os dados. Onde não tiver dado, coloca 0.
+        df_final = pd.merge(df_base, df_agrupado, on='Data_Str', how='left')
+        df_final['TONS'] = df_final['TONS'].fillna(0)
         
-        return df_agrupado
+        return df_final
 
     except Exception as e:
         st.error(f"Erro ao ler faturamento da nuvem: {e}")
@@ -135,7 +132,6 @@ def carregar_dados_pedidos():
             if "Vendedor Correto" in cols_existentes:
                 df_limpo = df[cols_existentes + ['Máquina/Processo']].copy()
                 
-                # Correção do zero à esquerda
                 if "Número do Pedido" in df_limpo.columns:
                     df_limpo["Número do Pedido"] = (
                         df_limpo["Número do Pedido"]
@@ -289,8 +285,17 @@ def exibir_aba_faturamento():
         col1, col2 = st.columns(2)
         col1.metric("Total Faturado (7 dias)", f"{total_periodo:,.2f} Ton")
         
-        # Gráfico de Barras
-        st.bar_chart(df_exibicao, y="TONS", use_container_width=True)
+        # --- GRÁFICO PERSONALIZADO (ALTAIR) ---
+        # Definimos uma largura fixa para as barras (size=40)
+        grafico = alt.Chart(df_exibicao).mark_bar(size=40, color='#0078D4').encode(
+            x=alt.X('Data_Str', sort=None, axis=alt.Axis(title='Data', labelAngle=0)),
+            y=alt.Y('TONS', title='Toneladas'),
+            tooltip=['Data_Str', 'TONS']
+        ).properties(
+            height=400 # Altura do gráfico
+        )
+        
+        st.altair_chart(grafico, use_container_width=True)
         
         st.caption("Dados atualizados pelo Robô Dox (Sincronização automática).")
             
