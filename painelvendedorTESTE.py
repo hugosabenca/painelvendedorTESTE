@@ -463,13 +463,14 @@ else:
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         
-        # --- DATA FORMATADA (PEQUENA E ITÁLICO) ---
+        # --- DATA FORMATADA (PEQUENA, ITÁLICO, SEM EMOJI) ---
         agora = datetime.now(FUSO_BR)
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
         meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
-        texto_data = f"📅 {dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
         
-        # Usando Markdown com HTML para diminuir e inclinar a fonte
+        # REMOVIDO O EMOJI 📅
+        texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
+        
         st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
         # -----------------------------------------------------------
 
