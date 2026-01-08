@@ -1,8 +1,9 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+import pyodbc
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS
@@ -16,6 +17,12 @@ st.set_page_config(
 # Define o Fuso Horário do Brasil
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
+# --- CONFIGURAÇÕES DO SQL SERVER ---
+DB_SERVER = "172.22.148.17,37000"
+DB_DATABASE = "CY1JZ0_148390_PR_PD"
+DB_USER = "CLT148390doxconsulta"
+DB_PASS = "oudhv16823IZBML?@"
+
 # --- LOGO NO MENU ---
 try:
     st.logo("logodox.png")
@@ -26,7 +33,140 @@ except Exception:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==============================================================================
-# FUNÇÕES DE BANCO DE DADOS (CARREGAR E SALVAR)
+# FUNÇÕES DE BANCO DE DADOS (SQL SERVER - FATURAMENTO)
+# ==============================================================================
+
+def conectar_sql_protheus():
+    try:
+        conn_str = (
+            f"DRIVER={{SQL Server}};"
+            f"SERVER={DB_SERVER};"
+            f"DATABASE={DB_DATABASE};"
+            f"UID={DB_USER};"
+            f"PWD={DB_PASS};"
+        )
+        return pyodbc.connect(conn_str, timeout=10)
+    except Exception as e:
+        st.error(f"Erro de conexão com SQL Server: {e}")
+        return None
+
+def carregar_dados_faturamento():
+    """
+    Executa a query de faturamento, filtra Pinheiral e últimos 7 dias.
+    """
+    conexao = conectar_sql_protheus()
+    if not conexao:
+        return pd.DataFrame()
+
+    sql_query = """
+    SELECT (CASE WHEN F2_FILIAL = '02' THEN 'SJ BICAS'
+       WHEN F2_FILIAL = '05' THEN 'PINHEIRAL'
+       WHEN F2_FILIAL = '01' THEN 'SF DO SUL'   
+       WHEN F2_FILIAL = '03' THEN 'CONTAGEM'
+       WHEN F2_FILIAL = '07' THEN 'SAO PAULO'   
+       ELSE F2_FILIAL
+    END) 'FILIAL', 
+    SUBSTRING(F2_EMISSAO, 5, 2) 'MES',
+    SUBSTRING(F2_EMISSAO, 7, 2)+'/'+SUBSTRING(F2_EMISSAO, 5, 2)+'/'+SUBSTRING(F2_EMISSAO, 1, 4) 'EMISSAO NF',
+    F2_DOC 'NF', 
+    (CASE WHEN C5_TPFRETE = 'F' THEN 'FOB'
+       WHEN C5_TPFRETE = 'C' THEN 'CIF'    
+       ELSE C5_TPFRETE
+    END) 'FRETE', 
+    SA1.A1_EST 'UF', SA1.A1_MUN 'MUNICIPIO',
+    (CASE WHEN SA3G.A3_NOME is null THEN SA3V.A3_NOME  
+          ELSE SA3G.A3_NOME
+    END) 'GERENTE',
+     SA3V.A3_NOME 'VENDEDOR', SA1.A1_NOME 'CLIENTE', D2_LOTECTL 'LOTE',
+    D2_COD 'COD PRODUTO', B1_DESC 'PRODUTO', D2_QUANT 'TONS', D2_PRCVEN 'PRC VENDA',  D2_PEDIDO 'PEDIDO VENDA', C5_ZNUMSF 'PED/PROP SF',
+    SUBSTRING(C5_EMISSAO, 7, 2)+'/'+SUBSTRING(C5_EMISSAO, 5, 2)+'/'+SUBSTRING(C5_EMISSAO, 1, 4) 'EMISSAO PV'
+    FROM SF2010 F2 WITH (NOLOCK) 
+    INNER JOIN SD2010 D2 WITH (NOLOCK) ON F2_FILIAL = D2_FILIAL AND F2_SERIE = D2_SERIE AND F2_DOC = D2_DOC AND F2_CLIENTE = D2_CLIENTE AND F2_LOJA = D2_LOJA AND D2.D_E_L_E_T_ <> '*' 
+    INNER JOIN SF4010 F4 WITH (NOLOCK) ON F4_FILIAL = D2_FILIAL AND F4_CODIGO = D2_TES AND F4_DUPLIC = 'S' AND F4.D_E_L_E_T_ <> '*'
+    LEFT join SA3010 SA3V WITH (NOLOCK) on SA3V.A3_COD = F2.F2_VEND1 AND SA3V.D_E_L_E_T_ = ''
+    left join SA3010 SA3G WITH (NOLOCK) on SA3G.A3_COD = SA3V.A3_GEREN AND SA3G.D_E_L_E_T_ = ''
+    inner join SB1010 SB1 WITH (NOLOCK) on SB1.B1_COD = D2.D2_COD AND SB1.D_E_L_E_T_ = ''
+    INNER JOIN SC5010 C5 WITH (NOLOCK) ON C5.C5_FILIAL = D2.D2_FILIAL AND C5.C5_NUM = D2.D2_PEDIDO AND C5.D_E_L_E_T_ = ''
+    INNER join SA1010 SA1 WITH (NOLOCK) on SA1.A1_COD+SA1.A1_LOJA = F2.F2_CLIENTE+F2.F2_LOJA AND SA1.D_E_L_E_T_ = ''
+    WHERE F2.D_E_L_E_T_ <> '*' 
+    AND F2_EMISSAO between '20230101' and '20261231'
+
+    UNION ALL
+
+    SELECT (CASE WHEN F2_FILIAL = '01' THEN 'STEEL BICAS'
+       WHEN F2_FILIAL = '02' THEN 'STEEL PINHEIRAL'   
+    END) 'FILIAL', 
+    SUBSTRING(F2_EMISSAO, 5, 2) 'MES',
+    SUBSTRING(F2_EMISSAO, 7, 2)+'/'+SUBSTRING(F2_EMISSAO, 5, 2)+'/'+SUBSTRING(F2_EMISSAO, 1, 4) 'EMISSAO NF',
+    F2_DOC 'NF', 
+    (CASE WHEN C5_TPFRETE = 'F' THEN 'FOB'
+       WHEN C5_TPFRETE = 'C' THEN 'CIF'    
+       ELSE C5_TPFRETE
+    END) 'FRETE', 
+    SA1.A1_EST 'UF', SA1.A1_MUN 'MUNICIPIO',
+    (CASE WHEN SA3G.A3_NOME is null THEN SA3V.A3_NOME  
+          ELSE SA3G.A3_NOME
+    END) 'GERENTE',
+     SA3V.A3_NOME 'VENDEDOR', SA1.A1_NOME 'CLIENTE', D2_LOTECTL 'LOTE',
+    D2_COD 'COD PRODUTO', B1_DESC 'PRODUTO', D2_QUANT 'TONS', D2_PRCVEN 'PRC VENDA',  D2_PEDIDO 'PEDIDO VENDA', C5_ZNUMSF 'PED/PROP SF',
+    SUBSTRING(C5_EMISSAO, 7, 2)+'/'+SUBSTRING(C5_EMISSAO, 5, 2)+'/'+SUBSTRING(C5_EMISSAO, 1, 4) 'EMISSAO PV'
+    FROM SF2020 F2 WITH (NOLOCK) 
+    INNER JOIN SD2020 D2 WITH (NOLOCK) ON F2_FILIAL = D2_FILIAL AND F2_SERIE = D2_SERIE AND F2_DOC = D2_DOC AND F2_CLIENTE = D2_CLIENTE AND F2_LOJA = D2_LOJA AND D2.D_E_L_E_T_ <> '*' 
+    LEFT join SA3020 SA3V WITH (NOLOCK) on SA3V.A3_COD = F2.F2_VEND1 AND SA3V.D_E_L_E_T_ = ''
+    left join SA3020 SA3G WITH (NOLOCK) on SA3G.A3_COD = SA3V.A3_GEREN AND SA3G.D_E_L_E_T_ = ''
+    inner join SB1020 SB1 WITH (NOLOCK) on SB1.B1_COD = D2.D2_COD AND SB1.D_E_L_E_T_ = ''
+    INNER JOIN SC5020 C5 WITH (NOLOCK) ON C5.C5_FILIAL = D2.D2_FILIAL AND C5.C5_NUM = D2.D2_PEDIDO AND C5.D_E_L_E_T_ = ''
+    INNER join SA1020 SA1 WITH (NOLOCK) on SA1.A1_COD+SA1.A1_LOJA = F2.F2_CLIENTE+F2.F2_LOJA AND SA1.D_E_L_E_T_ = ''
+    WHERE F2.D_E_L_E_T_ <> '*' 
+    AND F2_EMISSAO between '20230101' and '20261231'
+    """
+    
+    try:
+        # Lê a query para um DataFrame
+        df = pd.read_sql(sql_query, conexao)
+        conexao.close()
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        # --- PROCESSAMENTO DOS DADOS NO PANDAS ---
+        
+        # 1. Filtra Filial "PINHEIRAL"
+        df = df[df['FILIAL'] == 'PINHEIRAL'].copy()
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        # 2. Converte Data (EMISSAO NF dd/mm/aaaa -> datetime)
+        df['EMISSAO NF'] = pd.to_datetime(df['EMISSAO NF'], format='%d/%m/%Y', errors='coerce')
+        
+        # 3. Filtra Últimos 7 Dias
+        hoje = datetime.now()
+        data_limite = hoje - timedelta(days=7)
+        df_filtrado = df[df['EMISSAO NF'] >= data_limite].copy()
+        
+        # 4. Agrupa por dia e soma TONS
+        # Convertemos para string de data curta para o gráfico ficar bonito
+        df_filtrado['Data'] = df_filtrado['EMISSAO NF'].dt.strftime('%d/%m/%Y')
+        
+        df_agrupado = df_filtrado.groupby('Data')[['TONS']].sum().reset_index()
+        
+        # Garante a ordenação correta por data (não por string)
+        df_agrupado['Data_Sort'] = pd.to_datetime(df_agrupado['Data'], format='%d/%m/%Y')
+        df_agrupado = df_agrupado.sort_values('Data_Sort').drop(columns=['Data_Sort'])
+        
+        # Define a Data como índice para o st.bar_chart usar como eixo X
+        df_agrupado = df_agrupado.set_index('Data')
+        
+        return df_agrupado
+
+    except Exception as e:
+        st.error(f"Erro ao processar dados: {e}")
+        if conexao: conexao.close()
+        return pd.DataFrame()
+
+# ==============================================================================
+# FUNÇÕES DE BANCO DE DADOS (GOOGLE SHEETS)
 # ==============================================================================
 
 def carregar_usuarios():
@@ -221,6 +361,36 @@ def formatar_peso_brasileiro(valor):
 # ==============================================================================
 # FUNÇÕES DE EXIBIÇÃO (UI)
 # ==============================================================================
+
+def exibir_aba_faturamento():
+    st.subheader("📊 Ritmo de Faturamento - Pinheiral (Últimos 7 Dias)")
+    
+    # Botão para atualizar (evita consultas excessivas ao SQL)
+    if st.button("🔄 Atualizar Gráfico"):
+        with st.spinner("Consultando banco de dados Protheus..."):
+            df_fat = carregar_dados_faturamento()
+            st.session_state['dados_faturamento'] = df_fat
+    
+    # Exibe se tiver dados na memória
+    if 'dados_faturamento' in st.session_state and not st.session_state['dados_faturamento'].empty:
+        df_exibicao = st.session_state['dados_faturamento']
+        
+        # Métricas no topo
+        total_periodo = df_exibicao['TONS'].sum()
+        col1, col2 = st.columns(2)
+        col1.metric("Total Faturado (7 dias)", f"{total_periodo:,.2f} Ton")
+        
+        # Gráfico de Barras
+        st.bar_chart(df_exibicao, y="TONS", use_container_width=True)
+        
+        # Tabela detalhada (opcional, pode ficar escondida num expander)
+        with st.expander("Ver dados detalhados"):
+            st.dataframe(df_exibicao)
+            
+    elif 'dados_faturamento' in st.session_state and st.session_state['dados_faturamento'].empty:
+        st.warning("Nenhum faturamento encontrado para Pinheiral nos últimos 7 dias.")
+    else:
+        st.info("Clique no botão acima para carregar os indicadores.")
 
 def exibir_carteira_pedidos():
     titulo_prefixo = "Carteira de Pedidos"
@@ -468,7 +638,6 @@ else:
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
         meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
         
-        # REMOVIDO O EMOJI 📅
         texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
         
         st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
@@ -485,11 +654,12 @@ else:
             st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        aba1, aba2, aba3, aba4 = st.tabs([
+        aba1, aba2, aba3, aba4, aba5 = st.tabs([
             "📂 Carteira de Pedidos", 
             "📝 Solicitações de Acesso", 
             "📑 Certificados",
-            "🔍 Histórico de Acessos"
+            "🔍 Histórico de Acessos",
+            "📊 Faturamento"
         ])
         with aba1:
             exibir_carteira_pedidos()
@@ -516,6 +686,8 @@ else:
                     st.rerun()
             else:
                 st.info("Nenhum registro de acesso encontrado.")
+        with aba5:
+            exibir_aba_faturamento()
     else:
         aba1, aba2 = st.tabs([
             "📂 Carteira de Pedidos", 
