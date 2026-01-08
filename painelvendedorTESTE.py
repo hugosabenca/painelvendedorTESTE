@@ -210,6 +210,35 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         st.error(f"Erro ao salvar pedido de certificado: {e}")
         return False
 
+# --- FUNÇÃO NOVA: SALVAR NOTA FISCAL ---
+def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero):
+    try:
+        try:
+            df_existente = conn.read(worksheet="Solicitacoes_Notas", ttl=0)
+        except:
+            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Status"])
+        
+        if df_existente.empty and "Data" not in df_existente.columns:
+             df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Status"])
+
+        nf_str = f"'{nf_numero}"
+        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
+
+        nova_linha = pd.DataFrame([{
+            "Data": agora_br,
+            "Vendedor": vendedor_nome,
+            "Email": vendedor_email,
+            "NF": nf_str,
+            "Status": "Pendente"
+        }])
+        
+        df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
+        conn.update(worksheet="Solicitacoes_Notas", data=df_final)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar pedido de nota: {e}")
+        return False
+
 def formatar_peso_brasileiro(valor):
     try:
         if pd.isna(valor) or valor == "": return "0"
@@ -220,7 +249,7 @@ def formatar_peso_brasileiro(valor):
         return str(valor)
 
 # ==============================================================================
-# UI
+# UI - FUNÇÕES DE EXIBIÇÃO
 # ==============================================================================
 
 def exibir_aba_faturamento():
@@ -236,14 +265,13 @@ def exibir_aba_faturamento():
         
         total_periodo = df_exibicao['TONS'].sum()
         
-        # --- AJUSTE V24: FORMATAÇÃO BRASILEIRA NO TOTAL ---
-        # Formata: "1,248.60" -> "1X248.60" -> "1X248,60" -> "1.248,60"
+        # Formatação Brasileira do Total
         total_fmt = f"{total_periodo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         
         col1, col2 = st.columns(2)
         col1.metric("Total Faturado (7 dias)", f"{total_fmt} Ton")
         
-        # --- GRÁFICO PERSONALIZADO (ALTAIR) ---
+        # Gráfico Altair Personalizado
         ordem_grafico = df_exibicao['Label_X'].tolist()
         
         grafico = alt.Chart(df_exibicao).mark_bar(size=40, color='#0078D4').encode(
@@ -393,6 +421,33 @@ def exibir_aba_certificados(is_admin=False):
         else:
             st.info("Nenhum pedido de certificado registrado ainda.")
 
+# --- FUNÇÃO NOVA: EXIBIR ABA NOTAS FISCAIS ---
+def exibir_aba_notas():
+    st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
+    st.markdown("""
+        Digite o número da Nota Fiscal para receber o PDF por e-mail.
+        **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.
+    """)
+    with st.form("form_notas"):
+        col_n1, col_n2 = st.columns([1, 2])
+        with col_n1:
+            nf_input = st.text_input("Número da NF (Ex: 71591):")
+        with col_n2:
+            email_padrao = st.session_state.get('usuario_email', '')
+            email_input = st.text_input("Enviar para o e-mail:", value=email_padrao, key="email_nf")
+        
+        btn_pedir_nf = st.form_submit_button("Solicitar NF", type="primary")
+        
+        if btn_pedir_nf:
+            if not nf_input:
+                st.warning("Digite o número da nota.")
+            elif not email_input:
+                st.warning("Preencha o e-mail.")
+            else:
+                sucesso = salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input)
+                if sucesso:
+                    st.success(f"Solicitação da NF **{nf_input}** enviada para análise! Se validado, você receberá em breve.")
+
 # --- GESTÃO DE ESTADO (SESSÃO) ---
 if 'logado' not in st.session_state:
     st.session_state['logado'] = False
@@ -491,46 +546,33 @@ else:
             st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        aba1, aba2, aba3, aba4, aba5 = st.tabs([
+        # ADMIN: 6 ABAS (Pedidos, Acesso, Certificados, Notas, Logs, Faturamento)
+        aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
             "📂 Carteira de Pedidos", 
             "📝 Solicitações de Acesso", 
             "📑 Certificados",
+            "🧾 Notas Fiscais",  # Nova
             "🔍 Histórico de Acessos",
             "📊 Faturamento"
         ])
-        with aba1:
-            exibir_carteira_pedidos()
-        with aba2:
-            st.subheader("Gerenciamento de Solicitações de Cadastro")
-            st.info("Aqui estão os usuários que pediram acesso pelo site. Copie os dados para a aba 'Usuarios' do Excel para aprovar.")
-            df_solicitacoes = carregar_solicitacoes()
-            if not df_solicitacoes.empty:
-                st.dataframe(df_solicitacoes, use_container_width=True)
-                if st.button("Atualizar Lista de Acessos"):
-                    st.cache_data.clear()
-                    st.rerun()
-            else:
-                st.info("Nenhuma solicitação pendente.")
-        with aba3:
-            exibir_aba_certificados(is_admin=True)
-        with aba4:
-            st.subheader("🔍 Histórico de Logins no Sistema")
-            df_logs = carregar_logs_acessos()
-            if not df_logs.empty:
-                st.dataframe(df_logs, use_container_width=True, hide_index=True)
-                if st.button("Atualizar Logs"):
-                    st.cache_data.clear()
-                    st.rerun()
-            else:
-                st.info("Nenhum registro de acesso encontrado.")
-        with aba5:
-            exibir_aba_faturamento()
+        with aba1: exibir_carteira_pedidos()
+        with aba2: 
+            st.dataframe(carregar_solicitacoes(), use_container_width=True)
+            if st.button("Atualizar Acessos"): st.cache_data.clear(); st.rerun()
+        with aba3: exibir_aba_certificados(is_admin=True)
+        with aba4: exibir_aba_notas() # Nova Função
+        with aba5: 
+            st.dataframe(carregar_logs_acessos(), use_container_width=True)
+            if st.button("Atualizar Logs"): st.cache_data.clear(); st.rerun()
+        with aba6: exibir_aba_faturamento()
+
     else:
-        aba1, aba2 = st.tabs([
+        # USUÁRIO COMUM: 3 ABAS (Pedidos, Certificados, Notas)
+        aba1, aba2, aba3 = st.tabs([
             "📂 Carteira de Pedidos", 
-            "📑 Certificados"
+            "📑 Certificados",
+            "🧾 Notas Fiscais" # Nova
         ])
-        with aba1:
-            exibir_carteira_pedidos()
-        with aba2:
-            exibir_aba_certificados(is_admin=False)
+        with aba1: exibir_carteira_pedidos()
+        with aba2: exibir_aba_certificados(is_admin=False)
+        with aba3: exibir_aba_notas() # Nova Função
