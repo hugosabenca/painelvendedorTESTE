@@ -190,7 +190,6 @@ def carregar_dados_pedidos():
             if "Vendedor Correto" in cols_existentes:
                 df_limpo = df[cols_existentes + ['Máquina/Processo']].copy()
                 
-                # CORREÇÃO DO ZERO À ESQUERDA + REMOÇÃO DE .0
                 if "Número do Pedido" in df_limpo.columns:
                     df_limpo["Número do Pedido"] = (
                         df_limpo["Número do Pedido"]
@@ -464,13 +463,14 @@ else:
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         
-        # --- DATA FORMATADA EM PORTUGUÊS (NOVA FUNCIONALIDADE) ---
+        # --- DATA FORMATADA (PEQUENA E ITÁLICO) ---
         agora = datetime.now(FUSO_BR)
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
         meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
-        
         texto_data = f"📅 {dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
-        st.write(texto_data)
+        
+        # Usando Markdown com HTML para diminuir e inclinar a fonte
+        st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
         # -----------------------------------------------------------
 
         st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
