@@ -5,27 +5,11 @@ from datetime import datetime, timedelta
 import pytz
 import altair as alt
 
-# ==============================================================================
-# CONFIGURAÇÕES GERAIS
-# ==============================================================================
-st.set_page_config(
-    page_title="Painel do Vendedor Dox",
-    page_icon="logodox.png",
-    layout="wide"
-)
-
+st.set_page_config(page_title="Painel do Vendedor Dox", page_icon="logodox.png", layout="wide")
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
-
-try:
-    st.logo("logodox.png")
-except Exception:
-    pass 
-
+try: st.logo("logodox.png")
+except: pass 
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-# ==============================================================================
-# FUNÇÕES DE LEITURA
-# ==============================================================================
 
 def carregar_dados_faturamento_nuvem():
     try:
@@ -46,16 +30,13 @@ def carregar_dados_faturamento_nuvem():
             return f"{row['Data_Str']}\n{valor_fmt}"
         df_final['Label_X'] = df_final.apply(formatar_rotulo, axis=1)
         return df_final
-    except Exception as e:
-        st.error(f"Erro ao ler faturamento da nuvem: {e}")
-        return pd.DataFrame()
+    except Exception as e: st.error(f"Erro ao ler faturamento: {e}"); return pd.DataFrame()
 
 def carregar_usuarios():
     try:
         df_users = conn.read(worksheet="Usuarios", ttl=0)
-        df_users = df_users.astype(str)
-        return df_users
-    except Exception: return pd.DataFrame()
+        return df_users.astype(str)
+    except: return pd.DataFrame()
 
 def carregar_solicitacoes():
     try: return conn.read(worksheet="Solicitacoes", ttl=0)
@@ -75,7 +56,6 @@ def carregar_solicitacoes_certificados():
         return df
     except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
-# --- NOVA FUNÇÃO: CARREGAR HISTÓRICO DE NOTAS ---
 def carregar_solicitacoes_notas():
     try:
         df = conn.read(worksheet="Solicitacoes_Notas", ttl=0)
@@ -112,10 +92,6 @@ def carregar_dados_pedidos():
     if dados_consolidados: return pd.concat(dados_consolidados, ignore_index=True)
     return pd.DataFrame()
 
-# ==============================================================================
-# FUNÇÕES DE ESCRITA
-# ==============================================================================
-
 def registrar_acesso(login, nome):
     try:
         try: df_logs = conn.read(worksheet="Acessos", ttl=0)
@@ -125,7 +101,7 @@ def registrar_acesso(login, nome):
         novo_log = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome}])
         df_final = pd.concat([df_logs, novo_log], ignore_index=True)
         conn.update(worksheet="Acessos", data=df_final)
-    except Exception as e: print(f"Erro ao registrar log: {e}")
+    except: pass
 
 def salvar_nova_solicitacao(nome, email, login, senha):
     try:
@@ -135,7 +111,7 @@ def salvar_nova_solicitacao(nome, email, login, senha):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(worksheet="Solicitacoes", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro ao salvar: {e}"); return False
+    except Exception as e: st.error(f"Erro: {e}"); return False
 
 def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
     try:
@@ -148,7 +124,7 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(worksheet="Solicitacoes_Fotos", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro ao salvar: {e}"); return False
+    except Exception as e: st.error(f"Erro: {e}"); return False
 
 def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
     try:
@@ -161,7 +137,7 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(worksheet="Solicitacoes_Certificados", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro ao salvar: {e}"); return False
+    except Exception as e: st.error(f"Erro: {e}"); return False
 
 def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
@@ -174,7 +150,7 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(worksheet="Solicitacoes_Notas", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro ao salvar: {e}"); return False
+    except Exception as e: st.error(f"Erro: {e}"); return False
 
 def formatar_peso_brasileiro(valor):
     try:
@@ -276,30 +252,33 @@ def exibir_aba_fotos(is_admin=False):
 
 def exibir_aba_certificados(is_admin=False):
     st.subheader("📑 Solicitação de Certificados de Qualidade")
+    # TEXTO RESTAURADO CONFORME PEDIDO
+    st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
     st.markdown("Digite o número do Lote/Bobina para receber o certificado de qualidade.")
+    
     with st.form("form_certificado"):
         col_c1, col_c2 = st.columns([1, 2])
-        with col_c1: 
-            lote_cert = st.text_input("Lote / Bobina (Certificado):")
-            st.caption("ℹ️ Lotes que só alteram o sequencial final são da mesma matéria prima.")
+        with col_c1: lote_cert = st.text_input("Lote / Bobina (Certificado):")
         with col_c2: email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
         if st.form_submit_button("Solicitar Certificado", type="primary"):
             if not lote_cert: st.warning("Digite o lote.")
             elif not email_cert: st.warning("Preencha o e-mail.")
             elif salvar_solicitacao_certificado(st.session_state['usuario_nome'], email_cert, lote_cert): st.success(f"Solicitação de certificado do lote **{lote_cert}** enviada!")
-    if is_admin:
-        st.divider()
-        st.markdown("### 🛠️ Gestão de Pedidos de Certificados (Visão Admin)")
-        df_cert = carregar_solicitacoes_certificados()
-        if not df_cert.empty:
-            st.dataframe(df_cert, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
-            if st.button("Atualizar Lista de Certificados"): st.cache_data.clear(); st.rerun()
-        else: st.info("Nenhum pedido de certificado registrado.")
+    
+    # PAINEL DE GESTÃO VISÍVEL PARA TODOS AGORA
+    st.divider()
+    st.markdown("### 🛠️ Histórico de Solicitações de Certificados")
+    df_cert = carregar_solicitacoes_certificados()
+    if not df_cert.empty:
+        st.dataframe(df_cert, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
+        if st.button("Atualizar Lista de Certificados"): st.cache_data.clear(); st.rerun()
+    else: st.info("Nenhum pedido de certificado registrado.")
 
-# --- ABA NOTAS ATUALIZADA (COM PAINEL DE GESTÃO) ---
 def exibir_aba_notas(is_admin=False):
     st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
-    st.markdown("Preencha os dados abaixo para receber o PDF da Nota Fiscal. Selecione a Filial correta.")
+    # TEXTO RESTAURADO CONFORME PEDIDO
+    st.markdown("Digite o número da Nota Fiscal para receber o PDF por e-mail. **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.")
+    
     with st.form("form_notas"):
         col_n1, col_n2, col_n3 = st.columns([1, 1, 1])
         with col_n1: filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL"])
@@ -312,15 +291,14 @@ def exibir_aba_notas(is_admin=False):
             elif salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input, filial_input):
                 st.success(f"Solicitação da NF **{nf_input}** ({filial_input}) enviada!")
 
-    # --- PAINEL DE ACOMPANHAMENTO (IGUAL CERTIFICADOS) ---
-    if is_admin:
-        st.divider()
-        st.markdown("### 🛠️ Gestão de Pedidos de Notas (Visão Admin)")
-        df_notas = carregar_solicitacoes_notas()
-        if not df_notas.empty:
-            st.dataframe(df_notas, use_container_width=True, column_config={"NF": st.column_config.TextColumn("NF")})
-            if st.button("Atualizar Lista de Notas"): st.cache_data.clear(); st.rerun()
-        else: st.info("Nenhum pedido de nota registrado.")
+    # PAINEL DE GESTÃO VISÍVEL PARA TODOS AGORA
+    st.divider()
+    st.markdown("### 🛠️ Histórico de Solicitações de Notas")
+    df_notas = carregar_solicitacoes_notas()
+    if not df_notas.empty:
+        st.dataframe(df_notas, use_container_width=True, column_config={"NF": st.column_config.TextColumn("NF")})
+        if st.button("Atualizar Lista de Notas"): st.cache_data.clear(); st.rerun()
+    else: st.info("Nenhum pedido de nota registrado.")
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state:
@@ -376,7 +354,7 @@ else:
         with a1: exibir_carteira_pedidos()
         with a2: st.dataframe(carregar_solicitacoes(), use_container_width=True)
         with a3: exibir_aba_certificados(True)
-        with a4: exibir_aba_notas(True) # Passa True para mostrar o painel admin
+        with a4: exibir_aba_notas(True) 
         with a5: st.dataframe(carregar_logs_acessos(), use_container_width=True)
         with a6: exibir_aba_faturamento()
     else:
