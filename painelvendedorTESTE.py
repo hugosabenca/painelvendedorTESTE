@@ -235,14 +235,17 @@ def exibir_aba_faturamento():
         df_exibicao = st.session_state['dados_faturamento']
         
         total_periodo = df_exibicao['TONS'].sum()
+        
+        # --- AJUSTE V24: FORMATAÇÃO BRASILEIRA NO TOTAL ---
+        # Formata: "1,248.60" -> "1X248.60" -> "1X248,60" -> "1.248,60"
+        total_fmt = f"{total_periodo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        
         col1, col2 = st.columns(2)
-        col1.metric("Total Faturado (7 dias)", f"{total_periodo:,.2f} Ton")
+        col1.metric("Total Faturado (7 dias)", f"{total_fmt} Ton")
         
         # --- GRÁFICO PERSONALIZADO (ALTAIR) ---
         ordem_grafico = df_exibicao['Label_X'].tolist()
         
-        # AJUSTE V23: Adicionado labelExpr="split(datum.value, '\n')"
-        # Isso força o gráfico a entender o "Enter" e colocar o número na linha de baixo
         grafico = alt.Chart(df_exibicao).mark_bar(size=40, color='#0078D4').encode(
             x=alt.X('Label_X', sort=ordem_grafico, axis=alt.Axis(title=None, labelAngle=0, labelExpr="split(datum.value, '\\n')")), 
             y=alt.Y('TONS', title='Toneladas'),
