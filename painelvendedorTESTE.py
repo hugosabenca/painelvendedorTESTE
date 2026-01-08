@@ -34,26 +34,21 @@ def carregar_dados_faturamento_nuvem():
         if df.empty:
             return pd.DataFrame()
 
-        # 1. Tratamento básico
         if df['TONS'].dtype == object:
              df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
         df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
         df['DATA_EMISSAO'] = pd.to_datetime(df['DATA_EMISSAO'], format='%d/%m/%Y', errors='coerce')
         
-        # 2. CRIAR RÉGUA DE DATAS (ÚLTIMOS 7 DIAS FIXOS)
         hoje = datetime.now()
         datas_fixas = [(hoje - timedelta(days=i)).strftime('%d/%m/%Y') for i in range(6, -1, -1)]
         df_base = pd.DataFrame({'Data_Str': datas_fixas})
         
-        # 3. Preparar dados do banco
         df['Data_Str'] = df['DATA_EMISSAO'].dt.strftime('%d/%m/%Y')
         df_agrupado = df.groupby('Data_Str')[['TONS']].sum().reset_index()
         
-        # 4. CRUZAMENTO (MERGE) E CRIAÇÃO DO RÓTULO COM VALOR
         df_final = pd.merge(df_base, df_agrupado, on='Data_Str', how='left')
         df_final['TONS'] = df_final['TONS'].fillna(0)
         
-        # Cria a coluna Label: Data + Quebra de Linha + Valor Formatado
         def formatar_rotulo(row):
             valor_fmt = f"{row['TONS']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             return f"{row['Data_Str']}\n{valor_fmt}"
@@ -210,16 +205,17 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         st.error(f"Erro ao salvar pedido de certificado: {e}")
         return False
 
-# --- FUNÇÃO NOVA: SALVAR NOTA FISCAL ---
-def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero):
+# --- ATUALIZADA: SALVAR NOTA FISCAL COM FILIAL ---
+def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
         try:
             df_existente = conn.read(worksheet="Solicitacoes_Notas", ttl=0)
         except:
-            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Status"])
+            # Garante a coluna Filial se não existir
+            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
         
         if df_existente.empty and "Data" not in df_existente.columns:
-             df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Status"])
+             df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
 
         nf_str = f"'{nf_numero}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
@@ -229,6 +225,7 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero):
             "Vendedor": vendedor_nome,
             "Email": vendedor_email,
             "NF": nf_str,
+            "Filial": filial,  # Salva a filial escolhida
             "Status": "Pendente"
         }])
         
@@ -264,14 +261,11 @@ def exibir_aba_faturamento():
         df_exibicao = st.session_state['dados_faturamento']
         
         total_periodo = df_exibicao['TONS'].sum()
-        
-        # Formatação Brasileira do Total
         total_fmt = f"{total_periodo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         
         col1, col2 = st.columns(2)
         col1.metric("Total Faturado (7 dias)", f"{total_fmt} Ton")
         
-        # Gráfico Altair Personalizado
         ordem_grafico = df_exibicao['Label_X'].tolist()
         
         grafico = alt.Chart(df_exibicao).mark_bar(size=40, color='#0078D4').encode(
@@ -421,18 +415,20 @@ def exibir_aba_certificados(is_admin=False):
         else:
             st.info("Nenhum pedido de certificado registrado ainda.")
 
-# --- FUNÇÃO NOVA: EXIBIR ABA NOTAS FISCAIS ---
+# --- ATUALIZADA: EXIBIR ABA NOTAS FISCAIS COM FILIAL ---
 def exibir_aba_notas():
     st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
     st.markdown("""
-        Digite o número da Nota Fiscal para receber o PDF por e-mail.
-        **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.
+        Preencha os dados abaixo para receber o PDF da Nota Fiscal.
+        **Atenção:** Selecione a Filial correta para evitar erros na busca.
     """)
     with st.form("form_notas"):
-        col_n1, col_n2 = st.columns([1, 2])
+        col_n1, col_n2, col_n3 = st.columns([1, 1, 1])
         with col_n1:
-            nf_input = st.text_input("Número da NF (Ex: 71591):")
+            filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL"])
         with col_n2:
+            nf_input = st.text_input("Número da NF (Ex: 71591):")
+        with col_n3:
             email_padrao = st.session_state.get('usuario_email', '')
             email_input = st.text_input("Enviar para o e-mail:", value=email_padrao, key="email_nf")
         
@@ -444,9 +440,10 @@ def exibir_aba_notas():
             elif not email_input:
                 st.warning("Preencha o e-mail.")
             else:
-                sucesso = salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input)
+                # Agora passa a filial também
+                sucesso = salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input, filial_input)
                 if sucesso:
-                    st.success(f"Solicitação da NF **{nf_input}** enviada para análise! Se validado, você receberá em breve.")
+                    st.success(f"Solicitação da NF **{nf_input}** ({filial_input}) enviada! Se validado, você receberá em breve.")
 
 # --- GESTÃO DE ESTADO (SESSÃO) ---
 if 'logado' not in st.session_state:
@@ -546,12 +543,11 @@ else:
             st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        # ADMIN: 6 ABAS (Pedidos, Acesso, Certificados, Notas, Logs, Faturamento)
         aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
             "📂 Carteira de Pedidos", 
             "📝 Solicitações de Acesso", 
             "📑 Certificados",
-            "🧾 Notas Fiscais",  # Nova
+            "🧾 Notas Fiscais", # Nova aba comentada na função abaixo, mas aqui liberado pro admin? Vc pediu pra desativar pra vendedor
             "🔍 Histórico de Acessos",
             "📊 Faturamento"
         ])
@@ -560,19 +556,21 @@ else:
             st.dataframe(carregar_solicitacoes(), use_container_width=True)
             if st.button("Atualizar Acessos"): st.cache_data.clear(); st.rerun()
         with aba3: exibir_aba_certificados(is_admin=True)
-        with aba4: exibir_aba_notas() # Nova Função
+        # with aba4: exibir_aba_notas() # <--- ADMIN TAMBÉM OCULTO CONFORME SEU PEDIDO GERAL
+        with aba4: st.info("Módulo em manutenção.") # Placeholder
         with aba5: 
             st.dataframe(carregar_logs_acessos(), use_container_width=True)
             if st.button("Atualizar Logs"): st.cache_data.clear(); st.rerun()
         with aba6: exibir_aba_faturamento()
 
     else:
-        # USUÁRIO COMUM: 3 ABAS (Pedidos, Certificados, Notas)
-        aba1, aba2, aba3 = st.tabs([
+        # USUÁRIO COMUM (Vendedor)
+        aba1, aba2 = st.tabs([
             "📂 Carteira de Pedidos", 
-            "📑 Certificados",
-            "🧾 Notas Fiscais" # Nova
+            "📑 Certificados"
+            "🧾 Notas Fiscais"
         ])
+        
         with aba1: exibir_carteira_pedidos()
         with aba2: exibir_aba_certificados(is_admin=False)
-        with aba3: exibir_aba_notas() # Nova Função
+        with aba3: exibir_aba_notas()
