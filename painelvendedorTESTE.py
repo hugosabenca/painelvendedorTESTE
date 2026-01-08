@@ -5,11 +5,27 @@ from datetime import datetime, timedelta
 import pytz
 import altair as alt
 
-st.set_page_config(page_title="Painel do Vendedor Dox", page_icon="logodox.png", layout="wide")
+# ==============================================================================
+# CONFIGURAÇÕES GERAIS
+# ==============================================================================
+st.set_page_config(
+    page_title="Painel do Vendedor Dox",
+    page_icon="logodox.png",
+    layout="wide"
+)
+
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
-try: st.logo("logodox.png")
-except: pass 
+
+try:
+    st.logo("logodox.png")
+except Exception:
+    pass 
+
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# ==============================================================================
+# FUNÇÕES DE LEITURA
+# ==============================================================================
 
 def carregar_dados_faturamento_nuvem():
     try:
@@ -30,7 +46,9 @@ def carregar_dados_faturamento_nuvem():
             return f"{row['Data_Str']}\n{valor_fmt}"
         df_final['Label_X'] = df_final.apply(formatar_rotulo, axis=1)
         return df_final
-    except Exception as e: st.error(f"Erro ao ler faturamento: {e}"); return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao ler faturamento da nuvem: {e}")
+        return pd.DataFrame()
 
 def carregar_usuarios():
     try:
@@ -91,6 +109,10 @@ def carregar_dados_pedidos():
         except: continue
     if dados_consolidados: return pd.concat(dados_consolidados, ignore_index=True)
     return pd.DataFrame()
+
+# ==============================================================================
+# FUNÇÕES DE ESCRITA
+# ==============================================================================
 
 def registrar_acesso(login, nome):
     try:
@@ -252,27 +274,43 @@ def exibir_aba_fotos(is_admin=False):
 
 def exibir_aba_certificados(is_admin=False):
     st.subheader("📑 Solicitação de Certificados de Qualidade")
-    # TEXTO RESTAURADO CONFORME PEDIDO
-    st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
     st.markdown("Digite o número do Lote/Bobina para receber o certificado de qualidade.")
     
     with st.form("form_certificado"):
         col_c1, col_c2 = st.columns([1, 2])
-        with col_c1: lote_cert = st.text_input("Lote / Bobina (Certificado):")
-        with col_c2: email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
+        with col_c1: 
+            lote_cert = st.text_input("Lote / Bobina (Certificado):")
+            # POSICIONADO DENTRO DA COLUNA, ABAIXO DO INPUT (Conforme Pedido)
+            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
+        with col_c2: 
+            email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
+        
         if st.form_submit_button("Solicitar Certificado", type="primary"):
             if not lote_cert: st.warning("Digite o lote.")
             elif not email_cert: st.warning("Preencha o e-mail.")
             elif salvar_solicitacao_certificado(st.session_state['usuario_nome'], email_cert, lote_cert): st.success(f"Solicitação de certificado do lote **{lote_cert}** enviada!")
     
-    # PAINEL DE GESTÃO VISÍVEL PARA TODOS AGORA
+    # --- PAINEL DE ACOMPANHAMENTO (COM FILTRO DE PRIVACIDADE) ---
     st.divider()
-    st.markdown("### 🛠️ Histórico de Solicitações de Certificados")
+    if is_admin:
+        st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
+    else:
+        st.markdown("### 📜 Meus Pedidos de Certificados")
+
     df_cert = carregar_solicitacoes_certificados()
+    
+    # Lógica de Filtro: Se não for admin, filtra pelo email do usuário
+    if not df_cert.empty and not is_admin:
+        user_email = st.session_state.get('usuario_email', '')
+        if 'Email' in df_cert.columns:
+            # Filtra onde o email da linha é igual ao email do usuário logado (ignora maiuscula/minuscula)
+            df_cert = df_cert[df_cert['Email'].str.lower() == user_email.lower()]
+
     if not df_cert.empty:
         st.dataframe(df_cert, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
         if st.button("Atualizar Lista de Certificados"): st.cache_data.clear(); st.rerun()
-    else: st.info("Nenhum pedido de certificado registrado.")
+    else: 
+        st.info("Nenhum pedido encontrado.")
 
 def exibir_aba_notas(is_admin=False):
     st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
@@ -291,14 +329,26 @@ def exibir_aba_notas(is_admin=False):
             elif salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input, filial_input):
                 st.success(f"Solicitação da NF **{nf_input}** ({filial_input}) enviada!")
 
-    # PAINEL DE GESTÃO VISÍVEL PARA TODOS AGORA
+    # --- PAINEL DE ACOMPANHAMENTO (COM FILTRO DE PRIVACIDADE) ---
     st.divider()
-    st.markdown("### 🛠️ Histórico de Solicitações de Notas")
+    if is_admin:
+        st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
+    else:
+        st.markdown("### 📜 Meus Pedidos de Notas")
+
     df_notas = carregar_solicitacoes_notas()
+    
+    # Lógica de Filtro: Se não for admin, filtra pelo email do usuário
+    if not df_notas.empty and not is_admin:
+        user_email = st.session_state.get('usuario_email', '')
+        if 'Email' in df_notas.columns:
+            df_notas = df_notas[df_notas['Email'].str.lower() == user_email.lower()]
+
     if not df_notas.empty:
         st.dataframe(df_notas, use_container_width=True, column_config={"NF": st.column_config.TextColumn("NF")})
         if st.button("Atualizar Lista de Notas"): st.cache_data.clear(); st.rerun()
-    else: st.info("Nenhum pedido de nota registrado.")
+    else: 
+        st.info("Nenhum pedido encontrado.")
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state:
