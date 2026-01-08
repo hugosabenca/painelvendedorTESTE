@@ -1,5 +1,3 @@
 streamlit
 pandas
 st-gsheets-connection
-pytz
-pyodbc
