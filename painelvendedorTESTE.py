@@ -181,7 +181,6 @@ def carregar_dados_pedidos():
     
     for aba in ABAS_MAQUINAS:
         try:
-            # Lê tudo como string para evitar conversões automáticas indesejadas
             df = conn.read(worksheet=aba, ttl=0, dtype=str)
             df['Máquina/Processo'] = aba
             
@@ -191,15 +190,14 @@ def carregar_dados_pedidos():
             if "Vendedor Correto" in cols_existentes:
                 df_limpo = df[cols_existentes + ['Máquina/Processo']].copy()
                 
-                # --- CORREÇÃO DO ZERO À ESQUERDA ---
+                # CORREÇÃO DO ZERO À ESQUERDA + REMOÇÃO DE .0
                 if "Número do Pedido" in df_limpo.columns:
-                    # Remove espaços, converte pra string e preenche com zeros até ter 6 dígitos
                     df_limpo["Número do Pedido"] = (
                         df_limpo["Número do Pedido"]
                         .astype(str)
-                        .str.replace(r'\.0$', '', regex=True) # Remove .0 se vier do excel como float
+                        .str.replace(r'\.0$', '', regex=True)
                         .str.strip()
-                        .str.zfill(6) # O segredo: completa com zeros até ter 6 casas
+                        .str.zfill(6)
                     )
                 
                 dados_consolidados.append(df_limpo)
@@ -238,7 +236,6 @@ def exibir_carteira_pedidos():
 
     if df_total is not None and not df_total.empty:
         df_total = df_total.dropna(subset=["Número do Pedido"])
-        # Filtra lixos de leitura
         df_total = df_total[~df_total["Número do Pedido"].isin(["000nan", "00None", "000000"])]
 
         nome_filtro = st.session_state['usuario_filtro']
@@ -266,7 +263,6 @@ def exibir_carteira_pedidos():
             df_filtrado['Quantidade_Num'] = pd.to_numeric(df_filtrado['Quantidade'], errors='coerce').fillna(0)
             df_filtrado['Peso (ton)'] = df_filtrado['Quantidade_Num'].apply(formatar_peso_brasileiro)
             
-            # Tratamento de datas (já vem como string, tentamos converter para ordenar se precisar, mas para exibir mantemos string formatada)
             try:
                 df_filtrado['Prazo_dt'] = pd.to_datetime(df_filtrado['Prazo'], dayfirst=True, errors='coerce')
                 df_filtrado['Prazo'] = df_filtrado['Prazo_dt'].dt.strftime('%d/%m/%Y').fillna("-")
@@ -312,9 +308,7 @@ def exibir_carteira_pedidos():
     else:
         st.error("Não foi possível carregar a planilha de pedidos.")
 
-# --- DEMAIS FUNÇÕES DE ABA ---
 def exibir_aba_fotos(is_admin=False):
-    # (Mantido igual)
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
     st.markdown("""
         Digite o número do Lote/Bobina abaixo para solicitar fotos de materiais defeituosos.
@@ -469,6 +463,16 @@ if not st.session_state['logado']:
 else:
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
+        
+        # --- DATA FORMATADA EM PORTUGUÊS (NOVA FUNCIONALIDADE) ---
+        agora = datetime.now(FUSO_BR)
+        dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
+        meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
+        
+        texto_data = f"📅 {dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
+        st.write(texto_data)
+        # -----------------------------------------------------------
+
         st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
         if st.button("Sair"):
             st.session_state['logado'] = False
