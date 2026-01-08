@@ -205,13 +205,12 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         st.error(f"Erro ao salvar pedido de certificado: {e}")
         return False
 
-# --- ATUALIZADA: SALVAR NOTA FISCAL COM FILIAL ---
+# --- FUNÇÃO ATUALIZADA: SALVAR NOTA FISCAL COM FILIAL ---
 def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
         try:
             df_existente = conn.read(worksheet="Solicitacoes_Notas", ttl=0)
         except:
-            # Garante a coluna Filial se não existir
             df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
         
         if df_existente.empty and "Data" not in df_existente.columns:
@@ -225,7 +224,7 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
             "Vendedor": vendedor_nome,
             "Email": vendedor_email,
             "NF": nf_str,
-            "Filial": filial,  # Salva a filial escolhida
+            "Filial": filial,  
             "Status": "Pendente"
         }])
         
@@ -547,7 +546,7 @@ else:
             "📂 Carteira de Pedidos", 
             "📝 Solicitações de Acesso", 
             "📑 Certificados",
-            "🧾 Notas Fiscais", # Nova aba comentada na função abaixo, mas aqui liberado pro admin? Vc pediu pra desativar pra vendedor
+            "🧾 Notas Fiscais", # Agora Liberado
             "🔍 Histórico de Acessos",
             "📊 Faturamento"
         ])
@@ -556,21 +555,20 @@ else:
             st.dataframe(carregar_solicitacoes(), use_container_width=True)
             if st.button("Atualizar Acessos"): st.cache_data.clear(); st.rerun()
         with aba3: exibir_aba_certificados(is_admin=True)
-        # with aba4: exibir_aba_notas() # <--- ADMIN TAMBÉM OCULTO CONFORME SEU PEDIDO GERAL
-        with aba4: st.info("Módulo em manutenção.") # Placeholder
+        with aba4: exibir_aba_notas() # Liberado para Admin também
         with aba5: 
             st.dataframe(carregar_logs_acessos(), use_container_width=True)
             if st.button("Atualizar Logs"): st.cache_data.clear(); st.rerun()
         with aba6: exibir_aba_faturamento()
 
     else:
-        # USUÁRIO COMUM (Vendedor)
-        aba1, aba2 = st.tabs([
+        # USUÁRIO COMUM (Vendedor) - AGORA COM NOTAS FISCAIS
+        aba1, aba2, aba3 = st.tabs([
             "📂 Carteira de Pedidos", 
-            "📑 Certificados"
-            "🧾 Notas Fiscais"
+            "📑 Certificados",
+            "🧾 Notas Fiscais"  # <--- Descomentado e Ativo
         ])
         
         with aba1: exibir_carteira_pedidos()
         with aba2: exibir_aba_certificados(is_admin=False)
-        with aba3: exibir_aba_notas()
+        with aba3: exibir_aba_notas() # <--- Descomentado e Ativo
