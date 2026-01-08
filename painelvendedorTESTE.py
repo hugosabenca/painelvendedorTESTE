@@ -213,7 +213,8 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
 def formatar_peso_brasileiro(valor):
     try:
         if pd.isna(valor) or valor == "": return "0"
-        texto = f"{float(valor):.3f}".replace('.', ',').rstrip('0').rstrip(',')
+        texto = f"{float(valor):.3f}"
+        texto = texto.replace('.', ',').rstrip('0').rstrip(',')
         return texto
     except:
         return str(valor)
@@ -238,13 +239,12 @@ def exibir_aba_faturamento():
         col1.metric("Total Faturado (7 dias)", f"{total_periodo:,.2f} Ton")
         
         # --- GRÁFICO PERSONALIZADO (ALTAIR) ---
-        # Definimos o eixo X usando o campo Label_X (que tem Data + Valor)
-        # Garantimos a ordem correta usando a lista original
-        
         ordem_grafico = df_exibicao['Label_X'].tolist()
         
+        # AJUSTE V23: Adicionado labelExpr="split(datum.value, '\n')"
+        # Isso força o gráfico a entender o "Enter" e colocar o número na linha de baixo
         grafico = alt.Chart(df_exibicao).mark_bar(size=40, color='#0078D4').encode(
-            x=alt.X('Label_X', sort=ordem_grafico, axis=alt.Axis(title=None, labelAngle=0)), # Eixo X limpo
+            x=alt.X('Label_X', sort=ordem_grafico, axis=alt.Axis(title=None, labelAngle=0, labelExpr="split(datum.value, '\\n')")), 
             y=alt.Y('TONS', title='Toneladas'),
             tooltip=['Data_Str', 'TONS']
         ).properties(
@@ -252,8 +252,6 @@ def exibir_aba_faturamento():
         )
         
         st.altair_chart(grafico, use_container_width=True)
-        
-        # Removido st.caption aqui
             
     elif 'dados_faturamento' in st.session_state and st.session_state['dados_faturamento'].empty:
         st.warning("Nenhum faturamento recente encontrado na planilha de sincronização.")
