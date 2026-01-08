@@ -3,7 +3,6 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 import pytz
-import pyodbc
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS
@@ -17,12 +16,6 @@ st.set_page_config(
 # Define o Fuso Horário do Brasil
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
-# --- CONFIGURAÇÕES DO SQL SERVER ---
-DB_SERVER = "172.22.148.17,37000"
-DB_DATABASE = "CY1JZ0_148390_PR_PD"
-DB_USER = "CLT148390doxconsulta"
-DB_PASS = "oudhv16823IZBML?@"
-
 # --- LOGO NO MENU ---
 try:
     st.logo("logodox.png")
@@ -33,141 +26,52 @@ except Exception:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==============================================================================
-# FUNÇÕES DE BANCO DE DADOS (SQL SERVER - FATURAMENTO)
+# FUNÇÕES DE BANCO DE DADOS (LEITURA)
 # ==============================================================================
 
-def conectar_sql_protheus():
+def carregar_dados_faturamento_nuvem():
+    """
+    Lê a aba 'Dados_Faturamento' que foi alimentada pelo Robô local.
+    """
     try:
-        conn_str = (
-            f"DRIVER={{SQL Server}};"
-            f"SERVER={DB_SERVER};"
-            f"DATABASE={DB_DATABASE};"
-            f"UID={DB_USER};"
-            f"PWD={DB_PASS};"
-        )
-        return pyodbc.connect(conn_str, timeout=10)
-    except Exception as e:
-        st.error(f"Erro de conexão com SQL Server: {e}")
-        return None
-
-def carregar_dados_faturamento():
-    """
-    Executa a query de faturamento, filtra Pinheiral e últimos 7 dias.
-    """
-    conexao = conectar_sql_protheus()
-    if not conexao:
-        return pd.DataFrame()
-
-    sql_query = """
-    SELECT (CASE WHEN F2_FILIAL = '02' THEN 'SJ BICAS'
-       WHEN F2_FILIAL = '05' THEN 'PINHEIRAL'
-       WHEN F2_FILIAL = '01' THEN 'SF DO SUL'   
-       WHEN F2_FILIAL = '03' THEN 'CONTAGEM'
-       WHEN F2_FILIAL = '07' THEN 'SAO PAULO'   
-       ELSE F2_FILIAL
-    END) 'FILIAL', 
-    SUBSTRING(F2_EMISSAO, 5, 2) 'MES',
-    SUBSTRING(F2_EMISSAO, 7, 2)+'/'+SUBSTRING(F2_EMISSAO, 5, 2)+'/'+SUBSTRING(F2_EMISSAO, 1, 4) 'EMISSAO NF',
-    F2_DOC 'NF', 
-    (CASE WHEN C5_TPFRETE = 'F' THEN 'FOB'
-       WHEN C5_TPFRETE = 'C' THEN 'CIF'    
-       ELSE C5_TPFRETE
-    END) 'FRETE', 
-    SA1.A1_EST 'UF', SA1.A1_MUN 'MUNICIPIO',
-    (CASE WHEN SA3G.A3_NOME is null THEN SA3V.A3_NOME  
-          ELSE SA3G.A3_NOME
-    END) 'GERENTE',
-     SA3V.A3_NOME 'VENDEDOR', SA1.A1_NOME 'CLIENTE', D2_LOTECTL 'LOTE',
-    D2_COD 'COD PRODUTO', B1_DESC 'PRODUTO', D2_QUANT 'TONS', D2_PRCVEN 'PRC VENDA',  D2_PEDIDO 'PEDIDO VENDA', C5_ZNUMSF 'PED/PROP SF',
-    SUBSTRING(C5_EMISSAO, 7, 2)+'/'+SUBSTRING(C5_EMISSAO, 5, 2)+'/'+SUBSTRING(C5_EMISSAO, 1, 4) 'EMISSAO PV'
-    FROM SF2010 F2 WITH (NOLOCK) 
-    INNER JOIN SD2010 D2 WITH (NOLOCK) ON F2_FILIAL = D2_FILIAL AND F2_SERIE = D2_SERIE AND F2_DOC = D2_DOC AND F2_CLIENTE = D2_CLIENTE AND F2_LOJA = D2_LOJA AND D2.D_E_L_E_T_ <> '*' 
-    INNER JOIN SF4010 F4 WITH (NOLOCK) ON F4_FILIAL = D2_FILIAL AND F4_CODIGO = D2_TES AND F4_DUPLIC = 'S' AND F4.D_E_L_E_T_ <> '*'
-    LEFT join SA3010 SA3V WITH (NOLOCK) on SA3V.A3_COD = F2.F2_VEND1 AND SA3V.D_E_L_E_T_ = ''
-    left join SA3010 SA3G WITH (NOLOCK) on SA3G.A3_COD = SA3V.A3_GEREN AND SA3G.D_E_L_E_T_ = ''
-    inner join SB1010 SB1 WITH (NOLOCK) on SB1.B1_COD = D2.D2_COD AND SB1.D_E_L_E_T_ = ''
-    INNER JOIN SC5010 C5 WITH (NOLOCK) ON C5.C5_FILIAL = D2.D2_FILIAL AND C5.C5_NUM = D2.D2_PEDIDO AND C5.D_E_L_E_T_ = ''
-    INNER join SA1010 SA1 WITH (NOLOCK) on SA1.A1_COD+SA1.A1_LOJA = F2.F2_CLIENTE+F2.F2_LOJA AND SA1.D_E_L_E_T_ = ''
-    WHERE F2.D_E_L_E_T_ <> '*' 
-    AND F2_EMISSAO between '20230101' and '20261231'
-
-    UNION ALL
-
-    SELECT (CASE WHEN F2_FILIAL = '01' THEN 'STEEL BICAS'
-       WHEN F2_FILIAL = '02' THEN 'STEEL PINHEIRAL'   
-    END) 'FILIAL', 
-    SUBSTRING(F2_EMISSAO, 5, 2) 'MES',
-    SUBSTRING(F2_EMISSAO, 7, 2)+'/'+SUBSTRING(F2_EMISSAO, 5, 2)+'/'+SUBSTRING(F2_EMISSAO, 1, 4) 'EMISSAO NF',
-    F2_DOC 'NF', 
-    (CASE WHEN C5_TPFRETE = 'F' THEN 'FOB'
-       WHEN C5_TPFRETE = 'C' THEN 'CIF'    
-       ELSE C5_TPFRETE
-    END) 'FRETE', 
-    SA1.A1_EST 'UF', SA1.A1_MUN 'MUNICIPIO',
-    (CASE WHEN SA3G.A3_NOME is null THEN SA3V.A3_NOME  
-          ELSE SA3G.A3_NOME
-    END) 'GERENTE',
-     SA3V.A3_NOME 'VENDEDOR', SA1.A1_NOME 'CLIENTE', D2_LOTECTL 'LOTE',
-    D2_COD 'COD PRODUTO', B1_DESC 'PRODUTO', D2_QUANT 'TONS', D2_PRCVEN 'PRC VENDA',  D2_PEDIDO 'PEDIDO VENDA', C5_ZNUMSF 'PED/PROP SF',
-    SUBSTRING(C5_EMISSAO, 7, 2)+'/'+SUBSTRING(C5_EMISSAO, 5, 2)+'/'+SUBSTRING(C5_EMISSAO, 1, 4) 'EMISSAO PV'
-    FROM SF2020 F2 WITH (NOLOCK) 
-    INNER JOIN SD2020 D2 WITH (NOLOCK) ON F2_FILIAL = D2_FILIAL AND F2_SERIE = D2_SERIE AND F2_DOC = D2_DOC AND F2_CLIENTE = D2_CLIENTE AND F2_LOJA = D2_LOJA AND D2.D_E_L_E_T_ <> '*' 
-    LEFT join SA3020 SA3V WITH (NOLOCK) on SA3V.A3_COD = F2.F2_VEND1 AND SA3V.D_E_L_E_T_ = ''
-    left join SA3020 SA3G WITH (NOLOCK) on SA3G.A3_COD = SA3V.A3_GEREN AND SA3G.D_E_L_E_T_ = ''
-    inner join SB1020 SB1 WITH (NOLOCK) on SB1.B1_COD = D2.D2_COD AND SB1.D_E_L_E_T_ = ''
-    INNER JOIN SC5020 C5 WITH (NOLOCK) ON C5.C5_FILIAL = D2.D2_FILIAL AND C5.C5_NUM = D2.D2_PEDIDO AND C5.D_E_L_E_T_ = ''
-    INNER join SA1020 SA1 WITH (NOLOCK) on SA1.A1_COD+SA1.A1_LOJA = F2.F2_CLIENTE+F2.F2_LOJA AND SA1.D_E_L_E_T_ = ''
-    WHERE F2.D_E_L_E_T_ <> '*' 
-    AND F2_EMISSAO between '20230101' and '20261231'
-    """
-    
-    try:
-        # Lê a query para um DataFrame
-        df = pd.read_sql(sql_query, conexao)
-        conexao.close()
+        # Lê a aba alimentada pelo Robô
+        df = conn.read(worksheet="Dados_Faturamento", ttl=0)
         
         if df.empty:
             return pd.DataFrame()
 
-        # --- PROCESSAMENTO DOS DADOS NO PANDAS ---
+        # Tratamento de dados para garantir que o gráfico funcione
+        # As colunas esperadas são: FILIAL, DATA_EMISSAO, TONS
         
-        # 1. Filtra Filial "PINHEIRAL"
-        df = df[df['FILIAL'] == 'PINHEIRAL'].copy()
+        # 1. Converter TONS para numérico (substitui vírgula por ponto se precisar)
+        if df['TONS'].dtype == object:
+             df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
+        df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
         
-        if df.empty:
-            return pd.DataFrame()
-
-        # 2. Converte Data (EMISSAO NF dd/mm/aaaa -> datetime)
-        df['EMISSAO NF'] = pd.to_datetime(df['EMISSAO NF'], format='%d/%m/%Y', errors='coerce')
+        # 2. Converter Data (esperado dd/mm/aaaa)
+        df['DATA_EMISSAO'] = pd.to_datetime(df['DATA_EMISSAO'], format='%d/%m/%Y', errors='coerce')
         
-        # 3. Filtra Últimos 7 Dias
+        # 3. Filtrar últimos 7 dias (garantia visual)
         hoje = datetime.now()
         data_limite = hoje - timedelta(days=7)
-        df_filtrado = df[df['EMISSAO NF'] >= data_limite].copy()
+        df_filtrado = df[df['DATA_EMISSAO'] >= data_limite].copy()
         
-        # 4. Agrupa por dia e soma TONS
-        # Convertemos para string de data curta para o gráfico ficar bonito
-        df_filtrado['Data'] = df_filtrado['EMISSAO NF'].dt.strftime('%d/%m/%Y')
+        # 4. Agrupar por Dia
+        df_filtrado['Data_Str'] = df_filtrado['DATA_EMISSAO'].dt.strftime('%d/%m/%Y')
+        df_agrupado = df_filtrado.groupby('Data_Str')[['TONS']].sum().reset_index()
         
-        df_agrupado = df_filtrado.groupby('Data')[['TONS']].sum().reset_index()
-        
-        # Garante a ordenação correta por data (não por string)
-        df_agrupado['Data_Sort'] = pd.to_datetime(df_agrupado['Data'], format='%d/%m/%Y')
+        # 5. Ordenar cronologicamente
+        df_agrupado['Data_Sort'] = pd.to_datetime(df_agrupado['Data_Str'], format='%d/%m/%Y')
         df_agrupado = df_agrupado.sort_values('Data_Sort').drop(columns=['Data_Sort'])
         
-        # Define a Data como índice para o st.bar_chart usar como eixo X
-        df_agrupado = df_agrupado.set_index('Data')
+        # Define o índice para o gráfico usar como eixo X
+        df_agrupado = df_agrupado.set_index('Data_Str')
         
         return df_agrupado
 
     except Exception as e:
-        st.error(f"Erro ao processar dados: {e}")
-        if conexao: conexao.close()
+        st.error(f"Erro ao ler faturamento da nuvem: {e}")
         return pd.DataFrame()
-
-# ==============================================================================
-# FUNÇÕES DE BANCO DE DADOS (GOOGLE SHEETS)
-# ==============================================================================
 
 def carregar_usuarios():
     try:
@@ -215,6 +119,43 @@ def carregar_logs_acessos():
         return df
     except Exception:
         return pd.DataFrame(columns=["Data", "Login", "Nome"])
+
+def carregar_dados_pedidos():
+    ABAS_MAQUINAS = ["Fagor", "Esquadros", "Marafon", "Divimec (Slitter)", "Divimec (Rebaixamento)"]
+    dados_consolidados = []
+    
+    for aba in ABAS_MAQUINAS:
+        try:
+            df = conn.read(worksheet=aba, ttl=0, dtype=str)
+            df['Máquina/Processo'] = aba
+            
+            cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
+            cols_existentes = [c for c in cols_necessarias if c in df.columns]
+            
+            if "Vendedor Correto" in cols_existentes:
+                df_limpo = df[cols_existentes + ['Máquina/Processo']].copy()
+                
+                # Correção do zero à esquerda
+                if "Número do Pedido" in df_limpo.columns:
+                    df_limpo["Número do Pedido"] = (
+                        df_limpo["Número do Pedido"]
+                        .astype(str)
+                        .str.replace(r'\.0$', '', regex=True)
+                        .str.strip()
+                        .str.zfill(6)
+                    )
+                
+                dados_consolidados.append(df_limpo)
+        except Exception:
+            continue
+            
+    if dados_consolidados:
+        return pd.concat(dados_consolidados, ignore_index=True)
+    return pd.DataFrame()
+
+# ==============================================================================
+# FUNÇÕES DE BANCO DE DADOS (ESCRITA)
+# ==============================================================================
 
 def registrar_acesso(login, nome):
     try:
@@ -315,38 +256,6 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         st.error(f"Erro ao salvar pedido de certificado: {e}")
         return False
 
-def carregar_dados_pedidos():
-    ABAS_MAQUINAS = ["Fagor", "Esquadros", "Marafon", "Divimec (Slitter)", "Divimec (Rebaixamento)"]
-    dados_consolidados = []
-    
-    for aba in ABAS_MAQUINAS:
-        try:
-            df = conn.read(worksheet=aba, ttl=0, dtype=str)
-            df['Máquina/Processo'] = aba
-            
-            cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
-            cols_existentes = [c for c in cols_necessarias if c in df.columns]
-            
-            if "Vendedor Correto" in cols_existentes:
-                df_limpo = df[cols_existentes + ['Máquina/Processo']].copy()
-                
-                if "Número do Pedido" in df_limpo.columns:
-                    df_limpo["Número do Pedido"] = (
-                        df_limpo["Número do Pedido"]
-                        .astype(str)
-                        .str.replace(r'\.0$', '', regex=True)
-                        .str.strip()
-                        .str.zfill(6)
-                    )
-                
-                dados_consolidados.append(df_limpo)
-        except Exception:
-            continue
-            
-    if dados_consolidados:
-        return pd.concat(dados_consolidados, ignore_index=True)
-    return pd.DataFrame()
-
 def formatar_peso_brasileiro(valor):
     try:
         if pd.isna(valor) or valor == "": return "0"
@@ -365,10 +274,10 @@ def formatar_peso_brasileiro(valor):
 def exibir_aba_faturamento():
     st.subheader("📊 Ritmo de Faturamento - Pinheiral (Últimos 7 Dias)")
     
-    # Botão para atualizar (evita consultas excessivas ao SQL)
+    # Botão para atualizar (lê da planilha na nuvem)
     if st.button("🔄 Atualizar Gráfico"):
-        with st.spinner("Consultando banco de dados Protheus..."):
-            df_fat = carregar_dados_faturamento()
+        with st.spinner("Buscando dados sincronizados..."):
+            df_fat = carregar_dados_faturamento_nuvem()
             st.session_state['dados_faturamento'] = df_fat
     
     # Exibe se tiver dados na memória
@@ -383,12 +292,10 @@ def exibir_aba_faturamento():
         # Gráfico de Barras
         st.bar_chart(df_exibicao, y="TONS", use_container_width=True)
         
-        # Tabela detalhada (opcional, pode ficar escondida num expander)
-        with st.expander("Ver dados detalhados"):
-            st.dataframe(df_exibicao)
+        st.caption("Dados atualizados pelo Robô Dox (Sincronização automática).")
             
     elif 'dados_faturamento' in st.session_state and st.session_state['dados_faturamento'].empty:
-        st.warning("Nenhum faturamento encontrado para Pinheiral nos últimos 7 dias.")
+        st.warning("Nenhum faturamento recente encontrado na planilha de sincronização.")
     else:
         st.info("Clique no botão acima para carregar os indicadores.")
 
