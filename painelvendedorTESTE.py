@@ -280,7 +280,7 @@ def exibir_aba_certificados(is_admin=False):
         col_c1, col_c2 = st.columns([1, 2])
         with col_c1: 
             lote_cert = st.text_input("Lote / Bobina (Certificado):")
-            # POSICIONADO DENTRO DA COLUNA, ABAIXO DO INPUT (Conforme Pedido)
+            # POSICIONADO DENTRO DA COLUNA, ABAIXO DO INPUT
             st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
         with col_c2: 
             email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
@@ -299,11 +299,9 @@ def exibir_aba_certificados(is_admin=False):
 
     df_cert = carregar_solicitacoes_certificados()
     
-    # Lógica de Filtro: Se não for admin, filtra pelo email do usuário
     if not df_cert.empty and not is_admin:
         user_email = st.session_state.get('usuario_email', '')
         if 'Email' in df_cert.columns:
-            # Filtra onde o email da linha é igual ao email do usuário logado (ignora maiuscula/minuscula)
             df_cert = df_cert[df_cert['Email'].str.lower() == user_email.lower()]
 
     if not df_cert.empty:
@@ -314,7 +312,7 @@ def exibir_aba_certificados(is_admin=False):
 
 def exibir_aba_notas(is_admin=False):
     st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
-    # TEXTO RESTAURADO CONFORME PEDIDO
+    # TEXTO ORIGINAL RESTAURADO
     st.markdown("Digite o número da Nota Fiscal para receber o PDF por e-mail. **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.")
     
     with st.form("form_notas"):
@@ -338,7 +336,6 @@ def exibir_aba_notas(is_admin=False):
 
     df_notas = carregar_solicitacoes_notas()
     
-    # Lógica de Filtro: Se não for admin, filtra pelo email do usuário
     if not df_notas.empty and not is_admin:
         user_email = st.session_state.get('usuario_email', '')
         if 'Email' in df_notas.columns:
@@ -394,13 +391,20 @@ if not st.session_state['logado']:
 else:
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
+        # --- DATA RESTAURADA NA SIDEBAR ---
+        agora = datetime.now(FUSO_BR)
+        dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
+        meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
+        texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
+        st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
+        # ----------------------------------
         st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
         if st.button("Sair"): st.session_state.update({'logado': False, 'usuario_nome': ""}); st.rerun()
         st.divider()
         if st.button("🔄 Atualizar Dados"): st.cache_data.clear(); st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Carteira", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento"])
+        a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Itens Programados", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento"])
         with a1: exibir_carteira_pedidos()
         with a2: st.dataframe(carregar_solicitacoes(), use_container_width=True)
         with a3: exibir_aba_certificados(True)
@@ -408,7 +412,7 @@ else:
         with a5: st.dataframe(carregar_logs_acessos(), use_container_width=True)
         with a6: exibir_aba_faturamento()
     else:
-        a1, a2, a3 = st.tabs(["📂 Carteira", "📑 Certificados", "🧾 Notas Fiscais"])
+        a1, a2, a3 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_certificados(False)
         with a3: exibir_aba_notas(False)
