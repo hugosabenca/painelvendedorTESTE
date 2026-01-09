@@ -53,28 +53,30 @@ def carregar_dados_faturamento_nuvem():
 def carregar_dados_producao_nuvem():
     try:
         df = conn.read(worksheet="Dados_Producao", ttl=0)
-        
-        if df.empty: 
-            return pd.DataFrame()
-
-        # 1. Normaliza nomes das colunas (Maiusculo e sem espaços extras)
+        if df.empty: return pd.DataFrame()
         df.columns = df.columns.str.strip().str.upper()
-
-        # 2. Tratamento de Volume (Garante Float)
         if 'VOLUME' in df.columns:
             if df['VOLUME'].dtype == object: 
                 df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        
-        # 3. Tratamento de Data (Mais flexível)
         if 'DATA' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
-        
         return df
-
     except Exception as e:
-        # AGORA VAI MOSTRAR O ERRO REAL NA TELA SE HOUVER
         st.error(f"Erro Técnico ao ler Produção: {e}") 
         return pd.DataFrame()
+
+# --- NOVA FUNÇÃO: LER METAS SALVAS ---
+def carregar_metas_producao():
+    try:
+        df = conn.read(worksheet="Metas_Producao", ttl=0)
+        if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
+        # Garante que META é numérico
+        if 'META' in df.columns:
+             if df['META'].dtype == object:
+                 df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        return df
+    except:
+        return pd.DataFrame(columns=['MAQUINA', 'META'])
 
 def carregar_usuarios():
     try:
@@ -139,6 +141,17 @@ def carregar_dados_pedidos():
 # ==============================================================================
 # FUNÇÕES DE ESCRITA
 # ==============================================================================
+
+# --- NOVA FUNÇÃO: SALVAR METAS ---
+def salvar_metas_producao(dicionario_metas):
+    try:
+        # Converte o dicionario {maquina: valor} para DataFrame
+        df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['MAQUINA', 'META'])
+        conn.update(worksheet="Metas_Producao", data=df_novo)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar metas: {e}")
+        return False
 
 def registrar_acesso(login, nome):
     try:
@@ -232,19 +245,61 @@ def exibir_aba_faturamento():
 
 def exibir_aba_producao():
     st.subheader("🏭 Painel de Produção (Pinheiral)")
+    
+    # 1. Carregar dados
     if st.button("🔄 Atualizar Produção"):
         with st.spinner("Carregando indicadores..."):
             st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
-    
+            st.session_state['metas_producao'] = carregar_metas_producao()
+            
+    # Carregar metas se não existirem na sessão (primeira vez)
+    if 'metas_producao' not in st.session_state:
+        st.session_state['metas_producao'] = carregar_metas_producao()
+
+    # --- ÁREA DE DEFINIÇÃO DE METAS ---
+    with st.expander("⚙️ Definir Metas Diárias (Tons)"):
+        # Pega a lista de maquinas existentes no banco ou cria padrao se vazio
+        if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
+            lista_maquinas = sorted(st.session_state['dados_producao']['MAQUINA'].unique())
+        else:
+            lista_maquinas = ["Divimec 1", "Divimec 2", "Endireitadeira", "Esquadros", "Fagor", "Marafon"] # Fallback
+
+        # Cria formulario para salvar tudo de uma vez
+        with st.form("form_metas"):
+            st.caption("Defina a meta diária (Tons) para cada máquina. Isso criará uma linha de referência no gráfico.")
+            novas_metas = {}
+            cols = st.columns(3) # Organiza inputs em colunas
+            
+            df_metas_atual = st.session_state['metas_producao']
+            
+            for i, mq in enumerate(lista_maquinas):
+                # Busca valor atual salvo
+                valor_atual = 0.0
+                if not df_metas_atual.empty:
+                    filtro = df_metas_atual[df_metas_atual['MAQUINA'] == mq]
+                    if not filtro.empty:
+                        valor_atual = float(filtro.iloc[0]['META'])
+                
+                with cols[i % 3]:
+                    novas_metas[mq] = st.number_input(f"{mq}", value=valor_atual, step=1.0, min_value=0.0)
+            
+            if st.form_submit_button("💾 Salvar Metas"):
+                if salvar_metas_producao(novas_metas):
+                    st.success("Metas atualizadas com sucesso!")
+                    st.session_state['metas_producao'] = carregar_metas_producao() # Recarrega
+                    st.rerun()
+
+    st.divider()
+
+    # --- VISUALIZAÇÃO DOS GRÁFICOS ---
     if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
         df = st.session_state['dados_producao']
-        
-        # Filtro de Período
+        df_metas = st.session_state['metas_producao']
+
         periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True)
         
-        # Lógica de Filtro
         if periodo == "Últimos 7 Dias":
-            data_limite = datetime.now() - timedelta(days=6) # Hoje + 6 anteriores
+            data_limite = datetime.now() - timedelta(days=6)
             df_filtro = df[df['DATA_DT'] >= data_limite]
         else:
             data_limite = datetime.now().replace(day=1)
@@ -266,27 +321,58 @@ def exibir_aba_producao():
         k2.metric("Média Diária", f"{media_fmt} Ton")
         st.divider()
 
-        # Gráficos Individuais por Máquina (Layout 2 Colunas)
+        # Gráficos Individuais (1 por linha)
         maquinas = sorted(df_filtro['MAQUINA'].unique())
-        col_esq, col_dir = st.columns(2)
         
-        for i, mq in enumerate(maquinas):
+        for mq in maquinas:
             df_mq = df_filtro[df_filtro['MAQUINA'] == mq]
             
-            grafico = alt.Chart(df_mq).mark_bar().encode(
-                x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=-45)),
+            # Busca meta da máquina
+            meta_valor = 0
+            if not df_metas.empty:
+                filtro_meta = df_metas[df_metas['MAQUINA'] == mq]
+                if not filtro_meta.empty:
+                    meta_valor = float(filtro_meta.iloc[0]['META'])
+
+            # Base do gráfico
+            base = alt.Chart(df_mq).encode(
+                x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=0))
+            )
+
+            # Barras Agrupadas (Side-by-Side usando xOffset)
+            barras = base.mark_bar().encode(
+                xOffset='TURNO', # Isso coloca lado a lado
                 y=alt.Y('VOLUME', title='Tons'),
                 color=alt.Color('TURNO', legend=alt.Legend(title="Turno", orient='top')),
                 tooltip=['DATA', 'TURNO', 'VOLUME']
-            ).properties(
-                title=f"Produção: {mq}",
-                height=300
+            )
+
+            # Rótulos de Dados (Valor em cima da barra)
+            rotulos = base.mark_text(dy=-10, color='black').encode(
+                xOffset='TURNO',
+                y=alt.Y('VOLUME'),
+                text=alt.Text('VOLUME', format=',.1f') # Formata com 1 casa decimal
+            )
+
+            # Linha de Meta (Regra Horizontal)
+            regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(
+                y='y',
+                size=alt.value(2)
             )
             
-            if i % 2 == 0:
-                with col_esq: st.altair_chart(grafico, use_container_width=True)
-            else:
-                with col_dir: st.altair_chart(grafico, use_container_width=True)
+            # Texto da Meta
+            texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(
+                y='y',
+                text=alt.value(f"Meta: {meta_valor}")
+            )
+
+            grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(
+                title=f"Produção: {mq}",
+                height=350 # Altura ajustada
+            )
+            
+            # Exibe full width (um embaixo do outro)
+            st.altair_chart(grafico_final, use_container_width=True)
 
     elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
         st.warning("Nenhum dado na planilha de produção.")
