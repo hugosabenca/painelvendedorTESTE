@@ -283,12 +283,10 @@ def exibir_aba_producao():
 
         periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True)
         
-        # 1. CORREÇÃO DATA (Normaliza para ignorar horas e garantir os 7 dias completos)
         hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
         
         if periodo == "Últimos 7 Dias":
-            data_limite = hoje_normalizado - timedelta(days=6) # Hoje (0) + 6 pra tras = 7 dias
-            # Filtra considerando apenas a data (sem hora)
+            data_limite = hoje_normalizado - timedelta(days=6) 
             df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
         else:
             data_limite = hoje_normalizado.replace(day=1)
@@ -314,14 +312,15 @@ def exibir_aba_producao():
         for mq in maquinas:
             df_mq = df_filtro[df_filtro['MAQUINA'] == mq].copy()
             
-            # --- 2. CÁLCULO DOS KPIS INDIVIDUAIS (Hoje e Última) ---
-            # Produção Hoje
+            # --- KPI: HOJE ---
             df_hoje = df_mq[df_mq['DATA_DT'].dt.date == hoje_normalizado.date()]
             vol_hoje = df_hoje['VOLUME'].sum()
             txt_hoje = f"{vol_hoje:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-            # Última Produção (>0)
-            df_last = df_mq[df_mq['VOLUME'] > 0].sort_values('DATA_DT', ascending=False)
+            # --- KPI: ÚLTIMA PRODUÇÃO (Exclui Hoje) ---
+            # Filtra apenas datas MENORES que hoje
+            df_last = df_mq[(df_mq['VOLUME'] > 0) & (df_mq['DATA_DT'].dt.date < hoje_normalizado.date())].sort_values('DATA_DT', ascending=False)
+            
             if not df_last.empty:
                 last_val = df_last.iloc[0]['VOLUME']
                 last_dt = df_last.iloc[0]['DATA_DT'].strftime('%d/%m')
@@ -329,13 +328,10 @@ def exibir_aba_producao():
             else:
                 txt_last = "-"
 
-            # Exibe KPIs da máquina
             c_kpi1, c_kpi2, c_vazio = st.columns([1, 2, 4])
             c_kpi1.markdown(f"**Hoje:** {txt_hoje}")
             c_kpi2.markdown(f"**Última Produção:** {txt_last}")
 
-            # --- 3. FORMATAR VÍRGULA NO GRÁFICO (Coluna Texto) ---
-            # Cria coluna string formatada para o label
             df_mq['VOLUME_TXT'] = df_mq['VOLUME'].apply(lambda x: f"{x:.1f}".replace('.', ','))
 
             meta_valor = 0
@@ -352,7 +348,6 @@ def exibir_aba_producao():
                 tooltip=['DATA', 'TURNO', 'VOLUME']
             )
 
-            # Usa a coluna VOLUME_TXT para o texto
             rotulos = base.mark_text(dy=-10, color='black').encode(
                 xOffset='TURNO',
                 y=alt.Y('VOLUME'),
@@ -364,7 +359,7 @@ def exibir_aba_producao():
 
             grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(title=f"Produção: {mq}", height=350)
             st.altair_chart(grafico_final, use_container_width=True)
-            st.markdown("---") # Separador entre máquinas
+            st.markdown("---")
 
     elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
         st.warning("Nenhum dado na planilha de produção.")
