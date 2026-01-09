@@ -53,12 +53,28 @@ def carregar_dados_faturamento_nuvem():
 def carregar_dados_producao_nuvem():
     try:
         df = conn.read(worksheet="Dados_Producao", ttl=0)
-        if df.empty: return pd.DataFrame()
-        # Tratamento de tipos
-        if df['VOLUME'].dtype == object: df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        df['DATA_DT'] = pd.to_datetime(df['DATA'], format='%d/%m/%Y', errors='coerce')
+        
+        if df.empty: 
+            return pd.DataFrame()
+
+        # 1. Normaliza nomes das colunas (Maiusculo e sem espaços extras)
+        df.columns = df.columns.str.strip().str.upper()
+
+        # 2. Tratamento de Volume (Garante Float)
+        if 'VOLUME' in df.columns:
+            if df['VOLUME'].dtype == object: 
+                df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        
+        # 3. Tratamento de Data (Mais flexível)
+        if 'DATA' in df.columns:
+            df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
+        
         return df
-    except: return pd.DataFrame()
+
+    except Exception as e:
+        # AGORA VAI MOSTRAR O ERRO REAL NA TELA SE HOUVER
+        st.error(f"Erro Técnico ao ler Produção: {e}") 
+        return pd.DataFrame()
 
 def carregar_usuarios():
     try:
@@ -456,7 +472,7 @@ else:
         with a4: exibir_aba_notas(True) 
         with a5: st.dataframe(carregar_logs_acessos(), use_container_width=True)
         with a6: exibir_aba_faturamento()
-        with a7: exibir_aba_producao() # NOVA ABA ADMIN
+        with a7: exibir_aba_producao()
     else:
         a1, a2, a3 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_carteira_pedidos()
