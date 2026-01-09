@@ -50,6 +50,16 @@ def carregar_dados_faturamento_nuvem():
         st.error(f"Erro ao ler faturamento da nuvem: {e}")
         return pd.DataFrame()
 
+def carregar_dados_producao_nuvem():
+    try:
+        df = conn.read(worksheet="Dados_Producao", ttl=0)
+        if df.empty: return pd.DataFrame()
+        # Tratamento de tipos
+        if df['VOLUME'].dtype == object: df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        df['DATA_DT'] = pd.to_datetime(df['DATA'], format='%d/%m/%Y', errors='coerce')
+        return df
+    except: return pd.DataFrame()
+
 def carregar_usuarios():
     try:
         df_users = conn.read(worksheet="Usuarios", ttl=0)
@@ -204,6 +214,69 @@ def exibir_aba_faturamento():
     elif 'dados_faturamento' in st.session_state and st.session_state['dados_faturamento'].empty: st.warning("Nenhum faturamento recente encontrado na planilha de sincronização.")
     else: st.info("Clique no botão acima para carregar os indicadores.")
 
+def exibir_aba_producao():
+    st.subheader("🏭 Painel de Produção (Pinheiral)")
+    if st.button("🔄 Atualizar Produção"):
+        with st.spinner("Carregando indicadores..."):
+            st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
+    
+    if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
+        df = st.session_state['dados_producao']
+        
+        # Filtro de Período
+        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True)
+        
+        # Lógica de Filtro
+        if periodo == "Últimos 7 Dias":
+            data_limite = datetime.now() - timedelta(days=6) # Hoje + 6 anteriores
+            df_filtro = df[df['DATA_DT'] >= data_limite]
+        else:
+            data_limite = datetime.now().replace(day=1)
+            df_filtro = df[df['DATA_DT'] >= data_limite]
+
+        if df_filtro.empty:
+            st.warning("Nenhum dado encontrado para este período.")
+            return
+
+        # KPIs Gerais
+        total_prod = df_filtro['VOLUME'].sum()
+        total_fmt = f"{total_prod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        dias_unicos = df_filtro['DATA_DT'].nunique()
+        media_diaria = total_prod / dias_unicos if dias_unicos > 0 else 0
+        media_fmt = f"{media_diaria:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        k1, k2 = st.columns(2)
+        k1.metric("Total Produzido", f"{total_fmt} Ton")
+        k2.metric("Média Diária", f"{media_fmt} Ton")
+        st.divider()
+
+        # Gráficos Individuais por Máquina (Layout 2 Colunas)
+        maquinas = sorted(df_filtro['MAQUINA'].unique())
+        col_esq, col_dir = st.columns(2)
+        
+        for i, mq in enumerate(maquinas):
+            df_mq = df_filtro[df_filtro['MAQUINA'] == mq]
+            
+            grafico = alt.Chart(df_mq).mark_bar().encode(
+                x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y('VOLUME', title='Tons'),
+                color=alt.Color('TURNO', legend=alt.Legend(title="Turno", orient='top')),
+                tooltip=['DATA', 'TURNO', 'VOLUME']
+            ).properties(
+                title=f"Produção: {mq}",
+                height=300
+            )
+            
+            if i % 2 == 0:
+                with col_esq: st.altair_chart(grafico, use_container_width=True)
+            else:
+                with col_dir: st.altair_chart(grafico, use_container_width=True)
+
+    elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
+        st.warning("Nenhum dado na planilha de produção.")
+    else:
+        st.info("Clique no botão para carregar.")
+
 def exibir_carteira_pedidos():
     titulo_prefixo = "Carteira de Pedidos"
     tipo_usuario = st.session_state['usuario_tipo'].lower()
@@ -275,77 +348,51 @@ def exibir_aba_fotos(is_admin=False):
 def exibir_aba_certificados(is_admin=False):
     st.subheader("📑 Solicitação de Certificados de Qualidade")
     st.markdown("Digite o número do Lote/Bobina para receber o certificado de qualidade.")
-    
     with st.form("form_certificado"):
         col_c1, col_c2 = st.columns([1, 2])
         with col_c1: 
             lote_cert = st.text_input("Lote / Bobina (Certificado):")
-            # POSICIONADO DENTRO DA COLUNA, ABAIXO DO INPUT
             st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
-        with col_c2: 
-            email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
-        
+        with col_c2: email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
         if st.form_submit_button("Solicitar Certificado", type="primary"):
             if not lote_cert: st.warning("Digite o lote.")
             elif not email_cert: st.warning("Preencha o e-mail.")
             elif salvar_solicitacao_certificado(st.session_state['usuario_nome'], email_cert, lote_cert): st.success(f"Solicitação de certificado do lote **{lote_cert}** enviada!")
-    
-    # --- PAINEL DE ACOMPANHAMENTO (COM FILTRO DE PRIVACIDADE) ---
     st.divider()
-    if is_admin:
-        st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
-    else:
-        st.markdown("### 📜 Meus Pedidos de Certificados")
-
+    if is_admin: st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
+    else: st.markdown("### 📜 Meus Pedidos de Certificados")
     df_cert = carregar_solicitacoes_certificados()
-    
     if not df_cert.empty and not is_admin:
         user_email = st.session_state.get('usuario_email', '')
-        if 'Email' in df_cert.columns:
-            df_cert = df_cert[df_cert['Email'].str.lower() == user_email.lower()]
-
+        if 'Email' in df_cert.columns: df_cert = df_cert[df_cert['Email'].str.lower() == user_email.lower()]
     if not df_cert.empty:
         st.dataframe(df_cert, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
         if st.button("Atualizar Lista de Certificados"): st.cache_data.clear(); st.rerun()
-    else: 
-        st.info("Nenhum pedido encontrado.")
+    else: st.info("Nenhum pedido encontrado.")
 
 def exibir_aba_notas(is_admin=False):
     st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
-    # TEXTO ORIGINAL RESTAURADO
     st.markdown("Digite o número da Nota Fiscal para receber o PDF por e-mail. **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.")
-    
     with st.form("form_notas"):
         col_n1, col_n2, col_n3 = st.columns([1, 1, 1])
         with col_n1: filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL"])
         with col_n2: nf_input = st.text_input("Número da NF (Ex: 71591):")
         with col_n3: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_nf")
-        
         if st.form_submit_button("Solicitar NF", type="primary"):
             if not nf_input: st.warning("Digite o número da nota.")
             elif not email_input: st.warning("Preencha o e-mail.")
-            elif salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input, filial_input):
-                st.success(f"Solicitação da NF **{nf_input}** ({filial_input}) enviada!")
-
-    # --- PAINEL DE ACOMPANHAMENTO (COM FILTRO DE PRIVACIDADE) ---
+            elif salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input, filial_input): st.success(f"Solicitação da NF **{nf_input}** ({filial_input}) enviada!")
     st.divider()
-    if is_admin:
-        st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
-    else:
-        st.markdown("### 📜 Meus Pedidos de Notas")
-
+    if is_admin: st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
+    else: st.markdown("### 📜 Meus Pedidos de Notas")
     df_notas = carregar_solicitacoes_notas()
-    
     if not df_notas.empty and not is_admin:
         user_email = st.session_state.get('usuario_email', '')
-        if 'Email' in df_notas.columns:
-            df_notas = df_notas[df_notas['Email'].str.lower() == user_email.lower()]
-
+        if 'Email' in df_notas.columns: df_notas = df_notas[df_notas['Email'].str.lower() == user_email.lower()]
     if not df_notas.empty:
         st.dataframe(df_notas, use_container_width=True, column_config={"NF": st.column_config.TextColumn("NF")})
         if st.button("Atualizar Lista de Notas"): st.cache_data.clear(); st.rerun()
-    else: 
-        st.info("Nenhum pedido encontrado.")
+    else: st.info("Nenhum pedido encontrado.")
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state:
@@ -391,26 +438,25 @@ if not st.session_state['logado']:
 else:
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
-        # --- DATA RESTAURADA NA SIDEBAR ---
         agora = datetime.now(FUSO_BR)
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
         meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
         texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
         st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
-        # ----------------------------------
         st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
         if st.button("Sair"): st.session_state.update({'logado': False, 'usuario_nome': ""}); st.rerun()
         st.divider()
         if st.button("🔄 Atualizar Dados"): st.cache_data.clear(); st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Itens Programados", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento"])
+        a1, a2, a3, a4, a5, a6, a7 = st.tabs(["📂 Itens Programados", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
         with a2: st.dataframe(carregar_solicitacoes(), use_container_width=True)
         with a3: exibir_aba_certificados(True)
         with a4: exibir_aba_notas(True) 
         with a5: st.dataframe(carregar_logs_acessos(), use_container_width=True)
         with a6: exibir_aba_faturamento()
+        with a7: exibir_aba_producao() # NOVA ABA ADMIN
     else:
         a1, a2, a3 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_carteira_pedidos()
