@@ -65,12 +65,10 @@ def carregar_dados_producao_nuvem():
         st.error(f"Erro Técnico ao ler Produção: {e}") 
         return pd.DataFrame()
 
-# --- NOVA FUNÇÃO: LER METAS SALVAS ---
 def carregar_metas_producao():
     try:
         df = conn.read(worksheet="Metas_Producao", ttl=0)
         if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
-        # Garante que META é numérico
         if 'META' in df.columns:
              if df['META'].dtype == object:
                  df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
@@ -142,10 +140,8 @@ def carregar_dados_pedidos():
 # FUNÇÕES DE ESCRITA
 # ==============================================================================
 
-# --- NOVA FUNÇÃO: SALVAR METAS ---
 def salvar_metas_producao(dicionario_metas):
     try:
-        # Converte o dicionario {maquina: valor} para DataFrame
         df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['MAQUINA', 'META'])
         conn.update(worksheet="Metas_Producao", data=df_novo)
         return True
@@ -246,70 +242,62 @@ def exibir_aba_faturamento():
 def exibir_aba_producao():
     st.subheader("🏭 Painel de Produção (Pinheiral)")
     
-    # 1. Carregar dados
     if st.button("🔄 Atualizar Produção"):
         with st.spinner("Carregando indicadores..."):
             st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
             st.session_state['metas_producao'] = carregar_metas_producao()
             
-    # Carregar metas se não existirem na sessão (primeira vez)
     if 'metas_producao' not in st.session_state:
         st.session_state['metas_producao'] = carregar_metas_producao()
 
-    # --- ÁREA DE DEFINIÇÃO DE METAS ---
     with st.expander("⚙️ Definir Metas Diárias (Tons)"):
-        # Pega a lista de maquinas existentes no banco ou cria padrao se vazio
         if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
             lista_maquinas = sorted(st.session_state['dados_producao']['MAQUINA'].unique())
         else:
-            lista_maquinas = ["Divimec 1", "Divimec 2", "Endireitadeira", "Esquadros", "Fagor", "Marafon"] # Fallback
+            lista_maquinas = ["Divimec 1", "Divimec 2", "Endireitadeira", "Esquadros", "Fagor", "Marafon"]
 
-        # Cria formulario para salvar tudo de uma vez
         with st.form("form_metas"):
-            st.caption("Defina a meta diária (Tons) para cada máquina. Isso criará uma linha de referência no gráfico.")
+            st.caption("Defina a meta diária (Tons) para cada máquina.")
             novas_metas = {}
-            cols = st.columns(3) # Organiza inputs em colunas
-            
+            cols = st.columns(3)
             df_metas_atual = st.session_state['metas_producao']
-            
             for i, mq in enumerate(lista_maquinas):
-                # Busca valor atual salvo
                 valor_atual = 0.0
                 if not df_metas_atual.empty:
                     filtro = df_metas_atual[df_metas_atual['MAQUINA'] == mq]
                     if not filtro.empty:
                         valor_atual = float(filtro.iloc[0]['META'])
-                
                 with cols[i % 3]:
                     novas_metas[mq] = st.number_input(f"{mq}", value=valor_atual, step=1.0, min_value=0.0)
-            
             if st.form_submit_button("💾 Salvar Metas"):
                 if salvar_metas_producao(novas_metas):
-                    st.success("Metas atualizadas com sucesso!")
-                    st.session_state['metas_producao'] = carregar_metas_producao() # Recarrega
+                    st.success("Metas atualizadas!")
+                    st.session_state['metas_producao'] = carregar_metas_producao()
                     st.rerun()
 
     st.divider()
 
-    # --- VISUALIZAÇÃO DOS GRÁFICOS ---
     if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
         df = st.session_state['dados_producao']
         df_metas = st.session_state['metas_producao']
 
         periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True)
         
+        # 1. CORREÇÃO DATA (Normaliza para ignorar horas e garantir os 7 dias completos)
+        hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
+        
         if periodo == "Últimos 7 Dias":
-            data_limite = datetime.now() - timedelta(days=6)
-            df_filtro = df[df['DATA_DT'] >= data_limite]
+            data_limite = hoje_normalizado - timedelta(days=6) # Hoje (0) + 6 pra tras = 7 dias
+            # Filtra considerando apenas a data (sem hora)
+            df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
         else:
-            data_limite = datetime.now().replace(day=1)
-            df_filtro = df[df['DATA_DT'] >= data_limite]
+            data_limite = hoje_normalizado.replace(day=1)
+            df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
 
         if df_filtro.empty:
             st.warning("Nenhum dado encontrado para este período.")
             return
 
-        # KPIs Gerais
         total_prod = df_filtro['VOLUME'].sum()
         total_fmt = f"{total_prod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         dias_unicos = df_filtro['DATA_DT'].nunique()
@@ -321,58 +309,62 @@ def exibir_aba_producao():
         k2.metric("Média Diária", f"{media_fmt} Ton")
         st.divider()
 
-        # Gráficos Individuais (1 por linha)
         maquinas = sorted(df_filtro['MAQUINA'].unique())
         
         for mq in maquinas:
-            df_mq = df_filtro[df_filtro['MAQUINA'] == mq]
+            df_mq = df_filtro[df_filtro['MAQUINA'] == mq].copy()
             
-            # Busca meta da máquina
+            # --- 2. CÁLCULO DOS KPIS INDIVIDUAIS (Hoje e Última) ---
+            # Produção Hoje
+            df_hoje = df_mq[df_mq['DATA_DT'].dt.date == hoje_normalizado.date()]
+            vol_hoje = df_hoje['VOLUME'].sum()
+            txt_hoje = f"{vol_hoje:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            # Última Produção (>0)
+            df_last = df_mq[df_mq['VOLUME'] > 0].sort_values('DATA_DT', ascending=False)
+            if not df_last.empty:
+                last_val = df_last.iloc[0]['VOLUME']
+                last_dt = df_last.iloc[0]['DATA_DT'].strftime('%d/%m')
+                txt_last = f"{last_val:,.2f} ({last_dt})".replace(",", "X").replace(".", ",").replace("X", ".")
+            else:
+                txt_last = "-"
+
+            # Exibe KPIs da máquina
+            c_kpi1, c_kpi2, c_vazio = st.columns([1, 2, 4])
+            c_kpi1.markdown(f"**Hoje:** {txt_hoje}")
+            c_kpi2.markdown(f"**Última Produção:** {txt_last}")
+
+            # --- 3. FORMATAR VÍRGULA NO GRÁFICO (Coluna Texto) ---
+            # Cria coluna string formatada para o label
+            df_mq['VOLUME_TXT'] = df_mq['VOLUME'].apply(lambda x: f"{x:.1f}".replace('.', ','))
+
             meta_valor = 0
             if not df_metas.empty:
                 filtro_meta = df_metas[df_metas['MAQUINA'] == mq]
-                if not filtro_meta.empty:
-                    meta_valor = float(filtro_meta.iloc[0]['META'])
+                if not filtro_meta.empty: meta_valor = float(filtro_meta.iloc[0]['META'])
 
-            # Base do gráfico
-            base = alt.Chart(df_mq).encode(
-                x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=0))
-            )
-
-            # Barras Agrupadas (Side-by-Side usando xOffset)
+            base = alt.Chart(df_mq).encode(x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=0)))
+            
             barras = base.mark_bar().encode(
-                xOffset='TURNO', # Isso coloca lado a lado
+                xOffset='TURNO',
                 y=alt.Y('VOLUME', title='Tons'),
                 color=alt.Color('TURNO', legend=alt.Legend(title="Turno", orient='top')),
                 tooltip=['DATA', 'TURNO', 'VOLUME']
             )
 
-            # Rótulos de Dados (Valor em cima da barra)
+            # Usa a coluna VOLUME_TXT para o texto
             rotulos = base.mark_text(dy=-10, color='black').encode(
                 xOffset='TURNO',
                 y=alt.Y('VOLUME'),
-                text=alt.Text('VOLUME', format=',.1f') # Formata com 1 casa decimal
+                text=alt.Text('VOLUME_TXT') 
             )
 
-            # Linha de Meta (Regra Horizontal)
-            regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(
-                y='y',
-                size=alt.value(2)
-            )
-            
-            # Texto da Meta
-            texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(
-                y='y',
-                text=alt.value(f"Meta: {meta_valor}")
-            )
+            regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
+            texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
 
-            grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(
-                title=f"Produção: {mq}",
-                height=350 # Altura ajustada
-            )
-            
-            # Exibe full width (um embaixo do outro)
+            grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(title=f"Produção: {mq}", height=350)
             st.altair_chart(grafico_final, use_container_width=True)
+            st.markdown("---") # Separador entre máquinas
 
     elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
         st.warning("Nenhum dado na planilha de produção.")
