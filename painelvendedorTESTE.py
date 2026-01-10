@@ -308,30 +308,50 @@ def exibir_aba_producao():
         st.divider()
 
         maquinas = sorted(df_filtro['MAQUINA'].unique())
-        
+
+        def fmt_br(val):
+            return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
         for mq in maquinas:
             df_mq = df_filtro[df_filtro['MAQUINA'] == mq].copy()
             
-            # --- KPI: HOJE ---
-            df_hoje = df_mq[df_mq['DATA_DT'].dt.date == hoje_normalizado.date()]
-            vol_hoje = df_hoje['VOLUME'].sum()
-            txt_hoje = f"{vol_hoje:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            # 1. TÍTULO HIERÁRQUICO
+            st.markdown(f"### Produção: {mq}")
 
-            # --- KPI: ÚLTIMA PRODUÇÃO (Exclui Hoje) ---
-            # Filtra apenas datas MENORES que hoje
-            df_last = df_mq[(df_mq['VOLUME'] > 0) & (df_mq['DATA_DT'].dt.date < hoje_normalizado.date())].sort_values('DATA_DT', ascending=False)
+            # 2. CÁLCULO DETALHADO (Turno A, Turno C, Total)
             
-            if not df_last.empty:
-                last_val = df_last.iloc[0]['VOLUME']
-                last_dt = df_last.iloc[0]['DATA_DT'].strftime('%d/%m')
-                txt_last = f"{last_val:,.2f} ({last_dt})".replace(",", "X").replace(".", ",").replace("X", ".")
+            # --- HOJE ---
+            df_hoje = df_mq[df_mq['DATA_DT'].dt.date == hoje_normalizado.date()]
+            hoje_a = df_hoje[df_hoje['TURNO'] == 'Turno A']['VOLUME'].sum()
+            hoje_c = df_hoje[df_hoje['TURNO'] == 'Turno C']['VOLUME'].sum()
+            hoje_total = hoje_a + hoje_c
+            
+            hoje_str = hoje_normalizado.strftime('%d/%m')
+            # Montagem da string sem emojis
+            texto_hoje = f"**Hoje ({hoje_str}):** Turno A: {fmt_br(hoje_a)} | Turno C: {fmt_br(hoje_c)} | **Total: {fmt_br(hoje_total)}**"
+
+            # --- ÚLTIMA PRODUÇÃO (Anterior a hoje) ---
+            df_hist = df_mq[(df_mq['VOLUME'] > 0) & (df_mq['DATA_DT'].dt.date < hoje_normalizado.date())]
+            
+            if not df_hist.empty:
+                # Pega a maior data disponível no histórico
+                last_date = df_hist['DATA_DT'].max()
+                df_last = df_hist[df_hist['DATA_DT'] == last_date]
+                
+                last_a = df_last[df_last['TURNO'] == 'Turno A']['VOLUME'].sum()
+                last_c = df_last[df_last['TURNO'] == 'Turno C']['VOLUME'].sum()
+                last_total = last_a + last_c
+                
+                last_str = last_date.strftime('%d/%m')
+                texto_last = f"**Última Produção ({last_str}):** Turno A: {fmt_br(last_a)} | Turno C: {fmt_br(last_c)} | **Total: {fmt_br(last_total)}**"
             else:
-                txt_last = "-"
+                texto_last = "**Última Produção:** -"
 
-            c_kpi1, c_kpi2, c_vazio = st.columns([1, 2, 4])
-            c_kpi1.markdown(f"**Hoje:** {txt_hoje}")
-            c_kpi2.markdown(f"**Última Produção:** {txt_last}")
+            # 3. EXIBE INDICADORES (Texto Puro)
+            st.markdown(texto_hoje)
+            st.markdown(texto_last)
 
+            # 4. GRÁFICO
             df_mq['VOLUME_TXT'] = df_mq['VOLUME'].apply(lambda x: f"{x:.1f}".replace('.', ','))
 
             meta_valor = 0
@@ -357,7 +377,9 @@ def exibir_aba_producao():
             regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
             texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
 
-            grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(title=f"Produção: {mq}", height=350)
+            # Remove título do gráfico pois já temos o markdown em cima
+            grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(height=350)
+            
             st.altair_chart(grafico_final, use_container_width=True)
             st.markdown("---")
 
