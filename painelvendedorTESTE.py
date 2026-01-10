@@ -309,9 +309,9 @@ def exibir_aba_faturamento():
         if not df_last.empty:
             last_date = df_last['DATA_DT'].max()
             last_val = df_last[df_last['DATA_DT'] == last_date]['TONS'].sum()
-            txt_last = f"**Último ({last_date.strftime('%d/%m')}):** {fmt_br(last_val)} Ton"
+            txt_last = f"**Último Faturamento ({last_date.strftime('%d/%m')}):** {fmt_br(last_val)} Ton"
         else:
-            txt_last = "**Último:** -"
+            txt_last = "**Último Faturamento:** -"
 
         st.markdown(f"### Faturamento: PINHEIRAL")
         st.markdown(f"{txt_hoje} | {txt_last}")
