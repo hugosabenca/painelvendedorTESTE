@@ -250,7 +250,6 @@ def exibir_aba_faturamento():
         st.session_state['metas_faturamento'] = carregar_metas_faturamento()
 
     # --- DEFINIR METAS ---
-    # Alterado texto conforme pedido
     with st.expander("⚙️ Definir Meta (tons)"):
         with st.form("form_metas_fat"):
             st.caption("Defina a meta diária de faturamento para PINHEIRAL.")
@@ -274,7 +273,8 @@ def exibir_aba_faturamento():
         df = st.session_state['dados_faturamento']
         df_metas = st.session_state['metas_faturamento']
 
-        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True)
+        # KEY ADICIONADA AQUI PARA EVITAR ERRO DE DUPLICATA
+        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="fat_periodo")
         hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
 
         if periodo == "Últimos 7 Dias":
@@ -297,7 +297,7 @@ def exibir_aba_faturamento():
         # KPIs TOPO (Hoje e Último)
         def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        df_filtro_phr = df_filtro.copy() # Só tem Pinheiral agora
+        df_filtro_phr = df_filtro.copy() 
         
         # Hoje
         df_hoje = df_filtro_phr[df_filtro_phr['DATA_DT'].dt.date == hoje_normalizado.date()]
@@ -327,7 +327,6 @@ def exibir_aba_faturamento():
 
         base = alt.Chart(df_filtro_phr).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
         
-        # FIXADO TAMANHO DA BARRA PARA NÃO FICAR LARGA
         barras = base.mark_bar(color='#0078D4', size=40).encode(
             y=alt.Y('TONS', title='Toneladas'),
             tooltip=['DATA_STR', 'TONS']
@@ -391,7 +390,8 @@ def exibir_aba_producao():
         df = st.session_state['dados_producao']
         df_metas = st.session_state['metas_producao']
 
-        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True)
+        # KEY ADICIONADA AQUI PARA EVITAR ERRO DE DUPLICATA
+        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="prod_periodo")
         
         hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
         
