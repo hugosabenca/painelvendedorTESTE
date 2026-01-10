@@ -32,7 +32,6 @@ def carregar_dados_faturamento_nuvem():
         df = conn.read(worksheet="Dados_Faturamento", ttl=0)
         if df.empty: return pd.DataFrame()
         
-        # Normaliza colunas
         df.columns = df.columns.str.strip().str.upper()
         
         if 'TONS' in df.columns:
@@ -40,6 +39,7 @@ def carregar_dados_faturamento_nuvem():
                 df['TONS'] = pd.to_numeric(df['TONS'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         
         if 'DATA_EMISSAO' in df.columns:
+            # Novo formato enviado pelo Robô V33 é dd/mm/yyyy
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
             
         return df
@@ -250,7 +250,8 @@ def exibir_aba_faturamento():
         st.session_state['metas_faturamento'] = carregar_metas_faturamento()
 
     # --- DEFINIR METAS ---
-    with st.expander("⚙️ Definir Metas Diárias (Tons)"):
+    # Alterado texto conforme pedido
+    with st.expander("⚙️ Definir Meta (tons)"):
         with st.form("form_metas_fat"):
             st.caption("Defina a meta diária de faturamento para PINHEIRAL.")
             novas_metas = {}
@@ -296,7 +297,7 @@ def exibir_aba_faturamento():
         # KPIs TOPO (Hoje e Último)
         def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        df_filtro_phr = df_filtro[df_filtro['FILIAL'] == 'PINHEIRAL'].copy()
+        df_filtro_phr = df_filtro.copy() # Só tem Pinheiral agora
         
         # Hoje
         df_hoje = df_filtro_phr[df_filtro_phr['DATA_DT'].dt.date == hoje_normalizado.date()]
@@ -326,7 +327,8 @@ def exibir_aba_faturamento():
 
         base = alt.Chart(df_filtro_phr).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
         
-        barras = base.mark_bar(color='#0078D4').encode(
+        # FIXADO TAMANHO DA BARRA PARA NÃO FICAR LARGA
+        barras = base.mark_bar(color='#0078D4', size=40).encode(
             y=alt.Y('TONS', title='Toneladas'),
             tooltip=['DATA_STR', 'TONS']
         )
