@@ -27,11 +27,10 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # FUNÇÕES DE LEITURA
 # ==============================================================================
 
-def carregar_dados_faturamento_nuvem():
+def ler_dados_nuvem_generico(aba):
     try:
-        df = conn.read(worksheet="Dados_Faturamento", ttl=0)
+        df = conn.read(worksheet=aba, ttl=0)
         if df.empty: return pd.DataFrame()
-        
         df.columns = df.columns.str.strip().str.upper()
         
         if 'TONS' in df.columns:
@@ -39,13 +38,18 @@ def carregar_dados_faturamento_nuvem():
                 df['TONS'] = pd.to_numeric(df['TONS'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         
         if 'DATA_EMISSAO' in df.columns:
-            # Novo formato enviado pelo Robô V33 é dd/mm/yyyy
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
             
         return df
     except Exception as e:
-        st.error(f"Erro ao ler faturamento da nuvem: {e}")
+        st.error(f"Erro ao ler {aba}: {e}")
         return pd.DataFrame()
+
+def carregar_dados_faturamento_direto():
+    return ler_dados_nuvem_generico("Dados_Faturamento")
+
+def carregar_dados_faturamento_transf():
+    return ler_dados_nuvem_generico("Dados_Faturamento_Transf")
 
 def carregar_metas_faturamento():
     try:
@@ -238,21 +242,79 @@ def formatar_peso_brasileiro(valor):
 # UI
 # ==============================================================================
 
+def plotar_grafico_faturamento(df_filtrado, titulo_grafico, meta_valor=None):
+    if df_filtrado.empty:
+        st.warning(f"Sem dados para {titulo_grafico} neste período.")
+        return
+
+    # KPIs TOPO
+    def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    
+    hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Hoje
+    df_hoje = df_filtrado[df_filtrado['DATA_DT'].dt.date == hoje_normalizado.date()]
+    val_hoje = df_hoje['TONS'].sum()
+    txt_hoje = f"**Hoje ({hoje_normalizado.strftime('%d/%m')}):** {fmt_br(val_hoje)} Ton"
+
+    # Último
+    df_last = df_filtrado[(df_filtrado['TONS'] > 0) & (df_filtrado['DATA_DT'].dt.date < hoje_normalizado.date())].sort_values('DATA_DT', ascending=False)
+    if not df_last.empty:
+        last_date = df_last['DATA_DT'].max()
+        last_val = df_last[df_last['DATA_DT'] == last_date]['TONS'].sum()
+        txt_last = f"**Último Faturamento ({last_date.strftime('%d/%m')}):** {fmt_br(last_val)} Ton"
+    else:
+        txt_last = "**Último Faturamento:** -"
+
+    st.markdown(f"### {titulo_grafico}")
+    st.markdown(f"{txt_hoje} | {txt_last}")
+
+    # Preparação para Gráfico
+    df_chart = df_filtrado.copy()
+    df_chart['DATA_STR'] = df_chart['DATA_DT'].dt.strftime('%d/%m/%Y')
+    df_chart['TONS_TXT'] = df_chart['TONS'].apply(lambda x: f"{x:.1f}".replace('.', ','))
+
+    base = alt.Chart(df_chart).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
+    
+    barras = base.mark_bar(color='#0078D4', size=40).encode(
+        y=alt.Y('TONS', title='Toneladas'),
+        tooltip=['DATA_STR', 'TONS']
+    )
+
+    rotulos = base.mark_text(dy=-10, color='black').encode(
+        y=alt.Y('TONS'),
+        text=alt.Text('TONS_TXT')
+    )
+
+    grafico = (barras + rotulos)
+
+    if meta_valor is not None and meta_valor > 0:
+        regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
+        texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
+        grafico = (grafico + regra_meta + texto_meta)
+
+    grafico = grafico.properties(height=400)
+    st.altair_chart(grafico, use_container_width=True)
+    st.divider()
+
 def exibir_aba_faturamento():
     st.subheader("📊 Painel de Faturamento")
     
     if st.button("🔄 Atualizar Gráfico"):
         with st.spinner("Buscando dados sincronizados..."):
-            st.session_state['dados_faturamento'] = carregar_dados_faturamento_nuvem()
+            st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
+            st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
             st.session_state['metas_faturamento'] = carregar_metas_faturamento()
 
-    if 'metas_faturamento' not in st.session_state:
-        st.session_state['metas_faturamento'] = carregar_metas_faturamento()
+    # Fallback init
+    if 'metas_faturamento' not in st.session_state: st.session_state['metas_faturamento'] = carregar_metas_faturamento()
+    if 'dados_faturamento' not in st.session_state: st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
+    if 'dados_faturamento_transf' not in st.session_state: st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
 
-    # --- DEFINIR METAS ---
+    # --- DEFINIR METAS (Só Direto) ---
     with st.expander("⚙️ Definir Meta (tons)"):
         with st.form("form_metas_fat"):
-            st.caption("Defina a meta diária de faturamento para PINHEIRAL.")
+            st.caption("Defina a meta diária de faturamento para PINHEIRAL (Direto).")
             novas_metas = {}
             valor_atual = 0.0
             df_m = st.session_state['metas_faturamento']
@@ -269,84 +331,38 @@ def exibir_aba_faturamento():
                     st.rerun()
     st.divider()
 
-    if 'dados_faturamento' in st.session_state and not st.session_state['dados_faturamento'].empty:
-        df = st.session_state['dados_faturamento']
-        df_metas = st.session_state['metas_faturamento']
-
-        # KEY ADICIONADA AQUI PARA EVITAR ERRO DE DUPLICATA
-        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="fat_periodo")
-        hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-
-        if periodo == "Últimos 7 Dias":
-            data_limite = hoje_normalizado - timedelta(days=6)
-            df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
-        else:
-            data_limite = hoje_normalizado.replace(day=1)
-            df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
-
-        if df_filtro.empty:
-            st.warning("Nenhum faturamento encontrado para este período.")
-            return
-
-        total_periodo = df_filtro['TONS'].sum()
-        total_fmt = f"{total_periodo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        col1, col2 = st.columns(2)
-        col1.metric(f"Total Faturado ({periodo})", f"{total_fmt} Ton")
-        st.divider()
-
-        # KPIs TOPO (Hoje e Último)
-        def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-        df_filtro_phr = df_filtro.copy() 
-        
-        # Hoje
-        df_hoje = df_filtro_phr[df_filtro_phr['DATA_DT'].dt.date == hoje_normalizado.date()]
-        val_hoje = df_hoje['TONS'].sum()
-        txt_hoje = f"**Hoje ({hoje_normalizado.strftime('%d/%m')}):** {fmt_br(val_hoje)} Ton"
-
-        # Último
-        df_last = df_filtro_phr[(df_filtro_phr['TONS'] > 0) & (df_filtro_phr['DATA_DT'].dt.date < hoje_normalizado.date())].sort_values('DATA_DT', ascending=False)
-        if not df_last.empty:
-            last_date = df_last['DATA_DT'].max()
-            last_val = df_last[df_last['DATA_DT'] == last_date]['TONS'].sum()
-            txt_last = f"**Último Faturamento ({last_date.strftime('%d/%m')}):** {fmt_br(last_val)} Ton"
-        else:
-            txt_last = "**Último Faturamento:** -"
-
-        st.markdown(f"### Faturamento: PINHEIRAL")
-        st.markdown(f"{txt_hoje} | {txt_last}")
-
-        # Gráfico
-        df_filtro_phr['DATA_STR'] = df_filtro_phr['DATA_DT'].dt.strftime('%d/%m/%Y')
-        df_filtro_phr['TONS_TXT'] = df_filtro_phr['TONS'].apply(lambda x: f"{x:.1f}".replace('.', ','))
-
-        meta_valor = 0
-        if not df_metas.empty:
-            fmeta = df_metas[df_metas['FILIAL'] == 'PINHEIRAL']
-            if not fmeta.empty: meta_valor = float(fmeta.iloc[0]['META'])
-
-        base = alt.Chart(df_filtro_phr).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
-        
-        barras = base.mark_bar(color='#0078D4', size=40).encode(
-            y=alt.Y('TONS', title='Toneladas'),
-            tooltip=['DATA_STR', 'TONS']
-        )
-
-        rotulos = base.mark_text(dy=-10, color='black').encode(
-            y=alt.Y('TONS'),
-            text=alt.Text('TONS_TXT')
-        )
-
-        regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
-        texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
-
-        grafico = (barras + rotulos + regra_meta + texto_meta).properties(height=400)
-        st.altair_chart(grafico, use_container_width=True)
-
-    elif 'dados_faturamento' in st.session_state and st.session_state['dados_faturamento'].empty:
-        st.warning("Nenhum faturamento recente encontrado na planilha.")
+    # FILTRO GERAL
+    periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="fat_periodo")
+    hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    if periodo == "Últimos 7 Dias":
+        data_limite = hoje_normalizado - timedelta(days=6)
     else:
-        st.info("Clique no botão acima para carregar os indicadores.")
+        data_limite = hoje_normalizado.replace(day=1)
+
+    # 1. DIRETO
+    df_direto = st.session_state['dados_faturamento']
+    if not df_direto.empty:
+        df_filtro_direto = df_direto[df_direto['DATA_DT'].dt.date >= data_limite.date()]
+        
+        # Pega Meta
+        meta_direto = 0
+        df_m = st.session_state['metas_faturamento']
+        if not df_m.empty:
+            fmeta = df_m[df_m['FILIAL'] == 'PINHEIRAL']
+            if not fmeta.empty: meta_direto = float(fmeta.iloc[0]['META'])
+
+        plotar_grafico_faturamento(df_filtro_direto, "Faturamento Direto: Pinheiral", meta_direto)
+    else:
+        st.info("Sem dados de Faturamento Direto carregados.")
+
+    # 2. TRANSFERENCIA
+    df_transf = st.session_state['dados_faturamento_transf']
+    if not df_transf.empty:
+        df_filtro_transf = df_transf[df_transf['DATA_DT'].dt.date >= data_limite.date()]
+        plotar_grafico_faturamento(df_filtro_transf, "Faturamento Transferência: Pinheiral", meta_valor=None) # Sem meta
+    else:
+        st.info("Sem dados de Transferência carregados.")
 
 def exibir_aba_producao():
     st.subheader("🏭 Painel de Produção (Pinheiral)")
