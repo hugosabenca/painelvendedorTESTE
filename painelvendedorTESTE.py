@@ -33,25 +33,28 @@ except Exception:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==============================================================================
-# FUNÇÕES DE LEITURA
+# FUNÇÕES DE LEITURA (COM CACHE E DIAGNÓSTICO)
 # ==============================================================================
 
+@st.cache_data(ttl="10m", show_spinner=False)
 def ler_dados_nuvem_generico(aba, url_planilha):
     try:
-        # Passando a URL completa
         df = conn.read(spreadsheet=url_planilha, worksheet=aba, ttl=0)
         if df.empty: return pd.DataFrame()
+        
+        # Normalização de Colunas
         df.columns = df.columns.str.strip().str.upper()
         
         if 'TONS' in df.columns:
-            if df['TONS'].dtype == object: 
-                df['TONS'] = pd.to_numeric(df['TONS'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+            df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
+            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
         
         if 'DATA_EMISSAO' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
             
         return df
     except Exception as e:
+        print(f"Erro ao ler {aba}: {e}")
         return pd.DataFrame()
 
 def carregar_dados_faturamento_direto():
@@ -60,88 +63,118 @@ def carregar_dados_faturamento_direto():
 def carregar_dados_faturamento_transf():
     return ler_dados_nuvem_generico("Dados_Faturamento_Transf", URL_SISTEMA)
 
+@st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_faturamento():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", ttl=0)
         if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
+        df.columns = df.columns.str.strip().str.upper()
         if 'META' in df.columns:
-             if df['META'].dtype == object:
-                 df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+             df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         return df
     except:
         return pd.DataFrame(columns=['FILIAL', 'META'])
 
+@st.cache_data(ttl="10m", show_spinner=False)
 def carregar_dados_producao_nuvem():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Producao", ttl=0)
         if df.empty: return pd.DataFrame()
         df.columns = df.columns.str.strip().str.upper()
         if 'VOLUME' in df.columns:
-            if df['VOLUME'].dtype == object: 
-                df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+            df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         if 'DATA' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
         return df
     except Exception as e:
         return pd.DataFrame()
 
+@st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_producao():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", ttl=0)
         if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
+        df.columns = df.columns.str.strip().str.upper()
         if 'META' in df.columns:
-             if df['META'].dtype == object:
-                 df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+             df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
         return df
     except:
         return pd.DataFrame(columns=['MAQUINA', 'META'])
 
+@st.cache_data(ttl="10m", show_spinner=False)
 def carregar_usuarios():
     try:
-        # Passando a URL completa do sistema
         df_users = conn.read(spreadsheet=URL_SISTEMA, worksheet="Usuarios", ttl=0)
         return df_users.astype(str)
     except Exception as e:
-        st.error(f"Erro de conexão com a planilha de Usuários: {e}")
+        # Se der erro aqui, mostramos no login, mas retornamos vazio para não quebrar cache
         return pd.DataFrame()
 
+@st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes():
-    try: return conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", ttl=0)
-    except: return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
+    try: 
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", ttl=0)
+        return df
+    except Exception as e:
+        return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
 
+@st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_fotos():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
-        if not df.empty and "Lote" in df.columns: df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
+        if not df.empty:
+            cols_map = {c: c.strip() for c in df.columns}
+            df = df.rename(columns=cols_map)
+            if "Lote" in df.columns: 
+                df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
-    except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    except Exception as e: 
+        return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
+@st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_certificados():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
-        if not df.empty and "Lote" in df.columns: df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
+        if not df.empty:
+            cols_map = {c: c.strip() for c in df.columns}
+            df = df.rename(columns=cols_map)
+            if "Lote" in df.columns: 
+                df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
-    except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    except Exception as e: 
+        return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
+@st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_notas():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
-        if not df.empty and "NF" in df.columns: df["NF"] = df["NF"].astype(str).str.replace("'", "") 
+        if not df.empty:
+            cols_map = {c: c.strip() for c in df.columns}
+            df = df.rename(columns=cols_map)
+            if "NF" in df.columns: 
+                df["NF"] = df["NF"].astype(str).str.replace("'", "") 
         return df
-    except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
+    except Exception as e: 
+        return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
 
+@st.cache_data(ttl="5m", show_spinner=False)
 def carregar_logs_acessos():
     try:
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Acessos", ttl=0)
-        if not df.empty and "Data" in df.columns:
-             try:
-                 df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
-                 df = df.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
-             except: pass
+        if not df.empty:
+             df.columns = df.columns.str.strip()
+             if "Data" in df.columns:
+                 try:
+                     df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
+                     df = df.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
+                 except: pass
         return df
-    except: return pd.DataFrame(columns=["Data", "Login", "Nome"])
+    except Exception as e: 
+        return pd.DataFrame(columns=["Data", "Login", "Nome"])
 
+@st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
+    # ESTA É A FUNÇÃO CRÍTICA QUE ESTAVA TRAVANDO
     dados_consolidados = []
     
     # 1. LEITURA PINHEIRAL
@@ -150,7 +183,7 @@ def carregar_dados_pedidos():
             df = conn.read(spreadsheet=URL_PINHEIRAL, worksheet=aba, ttl=0, dtype=str)
             if not df.empty:
                 df['Máquina/Processo'] = aba
-                df['Filial_Origem'] = "PINHEIRAL" # Identificador
+                df['Filial_Origem'] = "PINHEIRAL"
                 
                 cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
                 cols_existentes = [c for c in cols_necessarias if c in df.columns]
@@ -168,7 +201,7 @@ def carregar_dados_pedidos():
             df = conn.read(spreadsheet=URL_BICAS, worksheet=aba, ttl=0, dtype=str)
             if not df.empty:
                 df['Máquina/Processo'] = aba
-                df['Filial_Origem'] = "SJ BICAS" # Identificador
+                df['Filial_Origem'] = "SJ BICAS"
                 
                 cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
                 cols_existentes = [c for c in cols_necessarias if c in df.columns]
@@ -476,6 +509,7 @@ def exibir_carteira_pedidos():
     st.title(f"{titulo_prefixo}: {st.session_state['usuario_nome']}")
     
     # 1. Carrega dados de ambas as planilhas
+    # CACHE ATIVADO: Não irá no Google toda vez
     df_total = carregar_dados_pedidos()
     
     if df_total is not None and not df_total.empty:
