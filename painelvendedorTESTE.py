@@ -6,7 +6,7 @@ import pytz
 import altair as alt
 
 # ==============================================================================
-# CONFIGURAÇÕES GERAIS E IDS
+# CONFIGURAÇÕES GERAIS E URLS
 # ==============================================================================
 st.set_page_config(
     page_title="Painel do Vendedor Dox",
@@ -16,11 +16,10 @@ st.set_page_config(
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
-# --- IDS DAS PLANILHAS (ARQUITETURA TRIPLA) ---
-# Atualizados em 10/01/2026
-ID_SISTEMA = "1jODOp_SJUKWp1UaSmW_xJgkkyqDUexa56_P5QScAv3s"
-ID_PINHEIRAL = "1DxTnEEh9VgbFyjqxYafdJ0-puSAIHYhZ6lo5wZTKDeg"
-ID_BICAS = "1zKZK0fpYl-UtHcYmFkZJtOO17fTqBWaJ39V2UOukack"
+# --- USANDO URLS COMPLETAS PARA EVITAR ERRO DE LEITURA ---
+URL_SISTEMA = "https://docs.google.com/spreadsheets/d/1jODOp_SJUKWp1UaSmW_xJgkkyqDUexa56_P5QScAv3s/edit"
+URL_PINHEIRAL = "https://docs.google.com/spreadsheets/d/1DxTnEEh9VgbFyjqxYafdJ0-puSAIHYhZ6lo5wZTKDeg/edit"
+URL_BICAS = "https://docs.google.com/spreadsheets/d/1zKZK0fpYl-UtHcYmFkZJtOO17fTqBWaJ39V2UOukack/edit"
 
 # --- LISTAS DE MÁQUINAS (ABAS) ---
 ABAS_PINHEIRAL = ["Fagor", "Esquadros", "Marafon", "Divimec (Slitter)", "Divimec (Rebaixamento)"]
@@ -37,10 +36,10 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # FUNÇÕES DE LEITURA
 # ==============================================================================
 
-def ler_dados_nuvem_generico(aba, id_planilha):
+def ler_dados_nuvem_generico(aba, url_planilha):
     try:
-        # Passando o ID explicitamente
-        df = conn.read(spreadsheet=id_planilha, worksheet=aba, ttl=0)
+        # Passando a URL completa
+        df = conn.read(spreadsheet=url_planilha, worksheet=aba, ttl=0)
         if df.empty: return pd.DataFrame()
         df.columns = df.columns.str.strip().str.upper()
         
@@ -53,18 +52,17 @@ def ler_dados_nuvem_generico(aba, id_planilha):
             
         return df
     except Exception as e:
-        # Silencia erros de aba nao encontrada para nao sujar a tela se a aba ainda nao existir
         return pd.DataFrame()
 
 def carregar_dados_faturamento_direto():
-    return ler_dados_nuvem_generico("Dados_Faturamento", ID_SISTEMA)
+    return ler_dados_nuvem_generico("Dados_Faturamento", URL_SISTEMA)
 
 def carregar_dados_faturamento_transf():
-    return ler_dados_nuvem_generico("Dados_Faturamento_Transf", ID_SISTEMA)
+    return ler_dados_nuvem_generico("Dados_Faturamento_Transf", URL_SISTEMA)
 
 def carregar_metas_faturamento():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Metas_Faturamento", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", ttl=0)
         if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
         if 'META' in df.columns:
              if df['META'].dtype == object:
@@ -75,7 +73,7 @@ def carregar_metas_faturamento():
 
 def carregar_dados_producao_nuvem():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Dados_Producao", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Producao", ttl=0)
         if df.empty: return pd.DataFrame()
         df.columns = df.columns.str.strip().str.upper()
         if 'VOLUME' in df.columns:
@@ -89,7 +87,7 @@ def carregar_dados_producao_nuvem():
 
 def carregar_metas_producao():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Metas_Producao", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", ttl=0)
         if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
         if 'META' in df.columns:
              if df['META'].dtype == object:
@@ -100,41 +98,41 @@ def carregar_metas_producao():
 
 def carregar_usuarios():
     try:
-        # Tenta ler a aba Usuarios do ID_SISTEMA
-        df_users = conn.read(spreadsheet=ID_SISTEMA, worksheet="Usuarios", ttl=0)
+        # Passando a URL completa do sistema
+        df_users = conn.read(spreadsheet=URL_SISTEMA, worksheet="Usuarios", ttl=0)
         return df_users.astype(str)
     except Exception as e:
-        st.error(f"Erro ao carregar usuários: {e}")
+        st.error(f"Erro de conexão com a planilha de Usuários: {e}")
         return pd.DataFrame()
 
 def carregar_solicitacoes():
-    try: return conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes", ttl=0)
+    try: return conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", ttl=0)
     except: return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
 
 def carregar_solicitacoes_fotos():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
         if not df.empty and "Lote" in df.columns: df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
     except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
 def carregar_solicitacoes_certificados():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
         if not df.empty and "Lote" in df.columns: df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
     except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
 def carregar_solicitacoes_notas():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
         if not df.empty and "NF" in df.columns: df["NF"] = df["NF"].astype(str).str.replace("'", "") 
         return df
     except: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
 
 def carregar_logs_acessos():
     try:
-        df = conn.read(spreadsheet=ID_SISTEMA, worksheet="Acessos", ttl=0)
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Acessos", ttl=0)
         if not df.empty and "Data" in df.columns:
              try:
                  df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
@@ -149,7 +147,7 @@ def carregar_dados_pedidos():
     # 1. LEITURA PINHEIRAL
     for aba in ABAS_PINHEIRAL:
         try:
-            df = conn.read(spreadsheet=ID_PINHEIRAL, worksheet=aba, ttl=0, dtype=str)
+            df = conn.read(spreadsheet=URL_PINHEIRAL, worksheet=aba, ttl=0, dtype=str)
             if not df.empty:
                 df['Máquina/Processo'] = aba
                 df['Filial_Origem'] = "PINHEIRAL" # Identificador
@@ -167,7 +165,7 @@ def carregar_dados_pedidos():
     # 2. LEITURA BICAS
     for aba in ABAS_BICAS:
         try:
-            df = conn.read(spreadsheet=ID_BICAS, worksheet=aba, ttl=0, dtype=str)
+            df = conn.read(spreadsheet=URL_BICAS, worksheet=aba, ttl=0, dtype=str)
             if not df.empty:
                 df['Máquina/Processo'] = aba
                 df['Filial_Origem'] = "SJ BICAS" # Identificador
@@ -186,13 +184,13 @@ def carregar_dados_pedidos():
     return pd.DataFrame()
 
 # ==============================================================================
-# FUNÇÕES DE ESCRITA (Mapeadas para ID_SISTEMA)
+# FUNÇÕES DE ESCRITA (Mapeadas para URL_SISTEMA)
 # ==============================================================================
 
 def salvar_metas_faturamento(dicionario_metas):
     try:
         df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['FILIAL', 'META'])
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Metas_Faturamento", data=df_novo)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", data=df_novo)
         return True
     except Exception as e:
         st.error(f"Erro ao salvar metas faturamento: {e}")
@@ -201,7 +199,7 @@ def salvar_metas_faturamento(dicionario_metas):
 def salvar_metas_producao(dicionario_metas):
     try:
         df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['MAQUINA', 'META'])
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Metas_Producao", data=df_novo)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", data=df_novo)
         return True
     except Exception as e:
         st.error(f"Erro ao salvar metas: {e}")
@@ -209,13 +207,13 @@ def salvar_metas_producao(dicionario_metas):
 
 def registrar_acesso(login, nome):
     try:
-        try: df_logs = conn.read(spreadsheet=ID_SISTEMA, worksheet="Acessos", ttl=0)
+        try: df_logs = conn.read(spreadsheet=URL_SISTEMA, worksheet="Acessos", ttl=0)
         except: df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
         if df_logs.empty and "Data" not in df_logs.columns: df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
         novo_log = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome}])
         df_final = pd.concat([df_logs, novo_log], ignore_index=True)
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Acessos", data=df_final)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Acessos", data=df_final)
     except: pass
 
 def salvar_nova_solicitacao(nome, email, login, senha):
@@ -224,46 +222,46 @@ def salvar_nova_solicitacao(nome, email, login, senha):
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Nome": nome, "Email": email, "Login": login, "Senha": senha, "Data": agora_br, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes", data=df_final)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", data=df_final)
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
 def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
     try:
-        try: df_existente = conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
+        try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
         except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
         if df_existente.empty and "Data" not in df_existente.columns: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
         lote_formatado = f"'{lote}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Fotos", data=df_final)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", data=df_final)
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
 def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
     try:
-        try: df_existente = conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
+        try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
         except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
         if df_existente.empty and "Data" not in df_existente.columns: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
         lote_formatado = f"'{lote}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Certificados", data=df_final)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", data=df_final)
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
 def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
-        try: df_existente = conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
+        try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
         except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
         if df_existente.empty and "Data" not in df_existente.columns: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
         nf_str = f"'{nf_numero}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "NF": nf_str, "Filial": filial, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes_Notas", data=df_final)
+        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", data=df_final)
         return True
     except Exception as e: st.error(f"Erro: {e}"); return False
 
@@ -634,13 +632,24 @@ if not st.session_state['logado']:
             s = st.text_input("Senha", type="password").strip()
             if st.button("Acessar", type="primary"):
                 df = carregar_usuarios()
-                user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
-                if not user.empty:
-                    d = user.iloc[0]
-                    st.session_state.update({'logado': True, 'usuario_nome': d['Nome Vendedor'].split()[0], 'usuario_filtro': d['Nome Vendedor'], 'usuario_email': d.get('Email', ''), 'usuario_tipo': d['Tipo']})
-                    registrar_acesso(u, d['Nome Vendedor'])
-                    st.rerun()
-                else: st.error("Dados incorretos.")
+                
+                # --- CORREÇÃO DE ERRO DE CONEXÃO ---
+                if df.empty:
+                    st.error("Erro de conexão com o Banco de Dados. Verifique a planilha 'Sistema Dox'.")
+                elif 'Login' not in df.columns or 'Senha' not in df.columns:
+                    st.error("A tabela de usuários não tem as colunas 'Login' ou 'Senha'. Verifique a planilha.")
+                else:
+                    try:
+                        user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
+                        if not user.empty:
+                            d = user.iloc[0]
+                            st.session_state.update({'logado': True, 'usuario_nome': d['Nome Vendedor'].split()[0], 'usuario_filtro': d['Nome Vendedor'], 'usuario_email': d.get('Email', ''), 'usuario_tipo': d['Tipo']})
+                            registrar_acesso(u, d['Nome Vendedor'])
+                            st.rerun()
+                        else: st.error("Dados incorretos.")
+                    except Exception as e:
+                        st.error(f"Erro ao processar login: {e}")
+
             st.markdown("---")
             if st.button("Solicitar Acesso"): st.session_state['fazendo_cadastro'] = True; st.rerun()
 else:
