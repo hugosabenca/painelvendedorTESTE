@@ -174,7 +174,7 @@ def carregar_logs_acessos():
 
 @st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
-    # ESTA É A FUNÇÃO CRÍTICA QUE ESTAVA TRAVANDO
+    # CACHE ATIVADO: 15 minutos de memoria
     dados_consolidados = []
     
     # 1. LEITURA PINHEIRAL
@@ -503,12 +503,8 @@ def exibir_aba_producao():
         st.info("Clique no botão para carregar.")
 
 def exibir_carteira_pedidos():
-    titulo_prefixo = "Carteira de Pedidos"
+    # REMOVIDO TITULO AQUI
     tipo_usuario = st.session_state['usuario_tipo'].lower()
-    if "gerente" in tipo_usuario: titulo_prefixo = "Gerência de Carteira"
-    elif "master" in tipo_usuario: titulo_prefixo = "Carteira Geral (Master)"
-    
-    st.title(f"{titulo_prefixo}: {st.session_state['usuario_nome']}")
     
     # 1. Carrega dados de ambas as planilhas
     # CACHE ATIVADO: Não irá no Google toda vez
