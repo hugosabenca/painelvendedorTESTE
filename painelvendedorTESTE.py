@@ -506,6 +506,8 @@ def exibir_carteira_pedidos():
     titulo_prefixo = "Carteira de Pedidos"
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     if "gerente" in tipo_usuario: titulo_prefixo = "Gerência de Carteira"
+    elif "master" in tipo_usuario: titulo_prefixo = "Carteira Geral (Master)"
+    
     st.title(f"{titulo_prefixo}: {st.session_state['usuario_nome']}")
     
     # 1. Carrega dados de ambas as planilhas
@@ -522,15 +524,22 @@ def exibir_carteira_pedidos():
             df_total = df_total[df_total["Filial_Origem"] == filtro_filial]
 
         nome_filtro = st.session_state['usuario_filtro']
-        if tipo_usuario in ["admin", "gerente"]:
+        
+        # === PERFIL ADMIN, GERENTE OU MASTER (VEEM TUDO) ===
+        if tipo_usuario in ["admin", "gerente", "master"]:
             vendedores_unicos = sorted(df_total["Vendedor Correto"].dropna().unique())
             filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos)
             if filtro_vendedor != "Todos": df_filtrado = df_total[df_total["Vendedor Correto"] == filtro_vendedor].copy()
             else: df_filtrado = df_total.copy()
+            
+        # === PERFIL GERENTE COMERCIAL (VÊ APENAS SUA EQUIPE) ===
         elif tipo_usuario == "gerente comercial":
             if "Gerente Correto" in df_total.columns: df_filtrado = df_total[df_total["Gerente Correto"].str.lower() == nome_filtro.lower()].copy()
             else: df_filtrado = pd.DataFrame()
-        else: df_filtrado = df_total[df_total["Vendedor Correto"].str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
+            
+        # === PERFIL VENDEDOR (VÊ APENAS O SEU) ===
+        else: 
+            df_filtrado = df_total[df_total["Vendedor Correto"].str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
 
         if df_filtrado.empty: st.info(f"Nenhum pedido pendente encontrado para a filial selecionada.")
         else:
@@ -543,7 +552,13 @@ def exibir_carteira_pedidos():
             
             # Adicionei 'Filial_Origem' na visualização para clareza
             colunas_visiveis = ["Número do Pedido", "Filial_Origem", "Cliente Correto", "Produto", "Peso (ton)", "Prazo", "Máquina/Processo"]
-            if tipo_usuario in ["admin", "gerente", "gerente comercial"]: colunas_visiveis.insert(6, "Vendedor Correto")
+            
+            # SE FOR ADMIN, GERENTE OU MASTER, ADICIONA AS COLUNAS EXTRAS
+            if tipo_usuario in ["admin", "gerente", "gerente comercial", "master"]: 
+                colunas_visiveis.insert(6, "Vendedor Correto")
+                if "Gerente Correto" in df_total.columns:
+                    colunas_visiveis.insert(7, "Gerente Correto")
+
             colunas_finais = [c for c in colunas_visiveis if c in df_filtrado.columns]
             df_final = df_filtrado[colunas_finais]
             
@@ -708,7 +723,17 @@ else:
         with a5: st.dataframe(carregar_logs_acessos(), use_container_width=True)
         with a6: exibir_aba_faturamento()
         with a7: exibir_aba_producao()
+        
+    elif st.session_state['usuario_tipo'].lower() == "master":
+        a1, a2, a3, a4, a5 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+        with a1: exibir_carteira_pedidos()
+        with a2: exibir_aba_certificados(False) # False = vê só o seu
+        with a3: exibir_aba_notas(False)        # False = vê só o seu
+        with a4: exibir_aba_faturamento()
+        with a5: exibir_aba_producao()
+        
     else:
+        # Vendedores e Gerentes Padrão
         a1, a2, a3 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_certificados(False)
