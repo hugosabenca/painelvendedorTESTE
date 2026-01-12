@@ -303,8 +303,16 @@ def plotar_grafico_faturamento(df_filtrado, titulo_grafico, meta_valor=None):
     df_chart['TONS_TXT'] = df_chart['TONS'].apply(lambda x: f"{x:.1f}".replace('.', ','))
 
     base = alt.Chart(df_chart).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
-    barras = base.mark_bar(color='#0078D4', size=40).encode(y=alt.Y('TONS', title='Toneladas'), tooltip=['DATA_STR', 'TONS'])
-    rotulos = base.mark_text(dy=-10, color='black').encode(y=alt.Y('TONS'), text=alt.Text('TONS_TXT'))
+    barras = base.mark_bar(color='#0078D4', size=40).encode(
+        y=alt.Y('TONS', title='Toneladas'),
+        tooltip=['DATA_STR', 'TONS']
+    )
+
+    rotulos = base.mark_text(dy=-10, color='black').encode(
+        y=alt.Y('TONS'),
+        text=alt.Text('TONS_TXT')
+    )
+
     grafico = (barras + rotulos)
 
     if meta_valor is not None and meta_valor > 0:
