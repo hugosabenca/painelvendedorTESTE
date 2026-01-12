@@ -98,10 +98,8 @@ def carregar_metas_producao():
         return pd.DataFrame(columns=['MAQUINA', 'META'])
 
 def carregar_usuarios():
-    try:
         df_users = conn.read(spreadsheet=ID_SISTEMA, worksheet="Usuarios", ttl=0)
         return df_users.astype(str)
-    except: return pd.DataFrame()
 
 def carregar_solicitacoes():
     try: return conn.read(spreadsheet=ID_SISTEMA, worksheet="Solicitacoes", ttl=0)
