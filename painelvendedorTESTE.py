@@ -409,7 +409,9 @@ def exibir_aba_producao():
         else: data_limite = hoje_normalizado.replace(day=1)
         df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
 
-        if df_filtro.empty: st.warning("Nenhum dado encontrado para este período."); return
+        if df_filtro.empty: 
+            st.warning("Nenhum dado encontrado para este período.")
+            return
 
         total_prod = df_filtro['VOLUME'].sum()
         dias_unicos = df_filtro['DATA_DT'].nunique()
@@ -459,7 +461,11 @@ def exibir_aba_producao():
             grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(height=350)
             st.altair_chart(grafico_final, use_container_width=True)
             st.markdown("---")
-    elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty: st.warning("Nenhum dado na planilha de produção."); else: st.info("Clique no botão para carregar.")
+            
+    elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
+        st.warning("Nenhum dado na planilha de produção.")
+    else:
+        st.info("Clique no botão para carregar.")
 
 def exibir_carteira_pedidos():
     titulo_prefixo = "Carteira de Pedidos"
