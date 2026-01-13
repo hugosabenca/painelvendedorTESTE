@@ -54,8 +54,7 @@ def ler_dados_nuvem_generico(aba, url_planilha):
             
         return df
     except Exception as e:
-        # Erro silencioso no console para não assustar o usuario
-        print(f"Erro leitura {aba}: {e}")
+        print(f"Erro ao ler {aba}: {e}")
         return pd.DataFrame()
 
 def carregar_dados_faturamento_direto():
@@ -108,7 +107,6 @@ def carregar_usuarios():
         df_users = conn.read(spreadsheet=URL_SISTEMA, worksheet="Usuarios", ttl=0)
         return df_users.astype(str)
     except Exception as e:
-        # Retorna vazio e o erro será tratado na tela de login de forma amigavel
         print(f"Erro conexao usuarios: {e}")
         return pd.DataFrame()
 
@@ -176,7 +174,6 @@ def carregar_logs_acessos():
 
 @st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
-    # CACHE ATIVADO: 15 minutos de memoria
     dados_consolidados = []
     
     # 1. LEITURA PINHEIRAL
@@ -217,6 +214,18 @@ def carregar_dados_pedidos():
 
     if dados_consolidados: return pd.concat(dados_consolidados, ignore_index=True)
     return pd.DataFrame()
+
+@st.cache_data(ttl="5m", show_spinner=False)
+def carregar_dados_credito():
+    try:
+        # Lê a aba de Crédito da Planilha Sistema Dox
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Credito", ttl=0)
+        if df.empty: return pd.DataFrame()
+        # Normaliza colunas para maiúsculas e remove espaços
+        df.columns = df.columns.str.strip().str.upper()
+        return df
+    except Exception as e:
+        return pd.DataFrame()
 
 # ==============================================================================
 # FUNÇÕES DE ESCRITA (Mapeadas para URL_SISTEMA)
@@ -307,6 +316,16 @@ def formatar_peso_brasileiro(valor):
         texto = texto.replace('.', ',').rstrip('0').rstrip(',')
         return texto
     except: return str(valor)
+
+def formatar_moeda(valor):
+    try:
+        # Tenta converter para float se for string com vírgula
+        if isinstance(valor, str):
+            valor = float(valor.replace('.', '').replace(',', '.'))
+        if pd.isna(valor): return "R$ 0,00"
+        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return str(valor)
 
 # ==============================================================================
 # UI
@@ -505,18 +524,15 @@ def exibir_aba_producao():
         st.info("Clique no botão para carregar.")
 
 def exibir_carteira_pedidos():
-    # REMOVIDO TITULO AQUI
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     
-    # 1. Carrega dados de ambas as planilhas
-    # CACHE ATIVADO: Não irá no Google toda vez
+    # CACHE ATIVADO
     df_total = carregar_dados_pedidos()
     
     if df_total is not None and not df_total.empty:
         df_total = df_total.dropna(subset=["Número do Pedido"])
         df_total = df_total[~df_total["Número do Pedido"].isin(["000nan", "00None", "000000"])]
         
-        # 2. Filtro de Filial (NOVO)
         filtro_filial = st.selectbox("Selecione a Filial:", ["Todas", "PINHEIRAL", "SJ BICAS"])
         if filtro_filial != "Todas":
             df_total = df_total[df_total["Filial_Origem"] == filtro_filial]
@@ -548,10 +564,8 @@ def exibir_carteira_pedidos():
                 df_filtrado['Prazo'] = df_filtrado['Prazo_dt'].dt.strftime('%d/%m/%Y').fillna("-")
             except: pass
             
-            # Adicionei 'Filial_Origem' na visualização para clareza
             colunas_visiveis = ["Número do Pedido", "Filial_Origem", "Cliente Correto", "Produto", "Peso (ton)", "Prazo", "Máquina/Processo"]
             
-            # SE FOR ADMIN, GERENTE OU MASTER, ADICIONA AS COLUNAS EXTRAS
             if tipo_usuario in ["admin", "gerente", "gerente comercial", "master"]: 
                 colunas_visiveis.insert(6, "Vendedor Correto")
                 if "Gerente Correto" in df_total.columns:
@@ -577,6 +591,73 @@ def exibir_carteira_pedidos():
             st.dataframe(df_exibicao, hide_index=True, use_container_width=True, column_config={"Prazo": st.column_config.TextColumn("Previsão"), "Filial_Origem": st.column_config.TextColumn("Filial")})
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
     else: st.error("Não foi possível carregar a planilha de pedidos.")
+
+def exibir_aba_credito():
+    st.subheader("💰 Painel de Crédito")
+    
+    # 1. Carrega dados da aba Dados_Credito
+    df_credito = carregar_dados_credito()
+    
+    if df_credito.empty:
+        st.info("Nenhuma informação de crédito disponível no momento.")
+        return
+
+    # 2. Definição das colunas solicitadas (Ordem Exata)
+    cols_order = [
+        "CNPJ", "CLIENTE", "VENDEDOR", "GERENTE", "RECEBIVEIS", "VENCIMENTO LC", 
+        "RISCO_DE_BLOQUEIO", "MOTIVO_PROVAVEL_DO_BLOQUEIO", "ACAO_SUGERIDA", 
+        "OPCAO_DE_FATURAMENTO", "DATA_VENC_LC", "DIAS_PARA_VENCER_LC", 
+        "DATA_VENCIMENTO_MAIS_ANTIGA", "DIAS_EM_ATRASO_RECEBIVEIS", "SALDO_VENCIDO", 
+        "SALDO_A_VENCER", "DIAS_PARA_VENCER_TITULO", "LC TOTAL", "LC DOX", "RA", 
+        "EM ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
+        "EM ABERTO BV", "DISPONIVEL BV"
+    ]
+    
+    # Colunas financeiras para formatar R$
+    cols_financeiras = [
+        "SALDO_VENCIDO", "SALDO_A_VENCER", "LC TOTAL", "LC DOX", "RA", 
+        "EM ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
+        "EM ABERTO BV", "DISPONIVEL BV"
+    ]
+
+    # 3. Filtragem por Tipo de Usuário
+    tipo_usuario = st.session_state['usuario_tipo'].lower()
+    nome_usuario = st.session_state['usuario_filtro']
+    
+    # --- FILTRO DE LINHAS ---
+    if tipo_usuario in ["admin", "master", "gerente"]:
+        # Vê tudo
+        df_filtrado = df_credito.copy()
+    else:
+        # Vendedor: Vê apenas sua carteira
+        if "VENDEDOR" in df_credito.columns:
+            # Filtro case-insensitive parcial ou exato
+            df_filtrado = df_credito[df_credito["VENDEDOR"].str.lower().str.contains(nome_usuario.lower(), na=False)].copy()
+        else:
+            df_filtrado = pd.DataFrame()
+
+    if df_filtrado.empty:
+        st.info("Nenhum cliente encontrado na sua carteira de crédito.")
+        return
+
+    # --- FILTRO DE COLUNAS (VISUALIZAÇÃO) ---
+    # Garante que só pega colunas que existem no DF
+    cols_existentes = [c for c in cols_order if c in df_filtrado.columns]
+    df_final = df_filtrado[cols_existentes].copy()
+
+    # Se for vendedor, remove VENDEDOR e GERENTE da visualização
+    if tipo_usuario not in ["admin", "master"]:
+        if "VENDEDOR" in df_final.columns: df_final = df_final.drop(columns=["VENDEDOR"])
+        if "GERENTE" in df_final.columns: df_final = df_final.drop(columns=["GERENTE"])
+
+    # 4. Formatação de Moeda
+    for col in cols_financeiras:
+        if col in df_final.columns:
+            df_final[col] = df_final[col].apply(formatar_moeda)
+
+    # 5. Exibição
+    st.dataframe(df_final, hide_index=True, use_container_width=True)
+
 
 def exibir_aba_fotos(is_admin=False):
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
@@ -713,26 +794,29 @@ else:
         if st.button("🔄 Atualizar Dados"): st.cache_data.clear(); st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6, a7 = st.tabs(["📂 Itens Programados", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
+        a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
-        with a2: st.dataframe(carregar_solicitacoes(), use_container_width=True)
-        with a3: exibir_aba_certificados(True)
-        with a4: exibir_aba_notas(True) 
-        with a5: st.dataframe(carregar_logs_acessos(), use_container_width=True)
-        with a6: exibir_aba_faturamento()
-        with a7: exibir_aba_producao()
+        with a2: exibir_aba_credito()
+        with a3: st.dataframe(carregar_solicitacoes(), use_container_width=True)
+        with a4: exibir_aba_certificados(True)
+        with a5: exibir_aba_notas(True) 
+        with a6: st.dataframe(carregar_logs_acessos(), use_container_width=True)
+        with a7: exibir_aba_faturamento()
+        with a8: exibir_aba_producao()
         
     elif st.session_state['usuario_tipo'].lower() == "master":
-        a1, a2, a3, a4, a5 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+        a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_certificados(False) 
-        with a3: exibir_aba_notas(False)        
-        with a4: exibir_aba_faturamento()
-        with a5: exibir_aba_producao()
+        with a2: exibir_aba_credito()
+        with a3: exibir_aba_certificados(False) 
+        with a4: exibir_aba_notas(False)        
+        with a5: exibir_aba_faturamento()
+        with a6: exibir_aba_producao()
         
     else:
         # Vendedores e Gerentes Padrão
-        a1, a2, a3 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais"])
+        a1, a2, a3, a4 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_certificados(False)
-        with a3: exibir_aba_notas(False)
+        with a2: exibir_aba_credito()
+        with a3: exibir_aba_certificados(False)
+        with a4: exibir_aba_notas(False)
