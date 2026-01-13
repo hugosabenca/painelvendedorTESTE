@@ -54,7 +54,8 @@ def ler_dados_nuvem_generico(aba, url_planilha):
             
         return df
     except Exception as e:
-        print(f"Erro ao ler {aba}: {e}")
+        # Erro silencioso no console para não assustar o usuario
+        print(f"Erro leitura {aba}: {e}")
         return pd.DataFrame()
 
 def carregar_dados_faturamento_direto():
@@ -101,13 +102,14 @@ def carregar_metas_producao():
     except:
         return pd.DataFrame(columns=['MAQUINA', 'META'])
 
-@st.cache_data(ttl="10m", show_spinner=False)
+# --- LOGIN SEM CACHE PARA EVITAR ERRO DE CONEXÃO PERSISTENTE ---
 def carregar_usuarios():
     try:
         df_users = conn.read(spreadsheet=URL_SISTEMA, worksheet="Usuarios", ttl=0)
         return df_users.astype(str)
     except Exception as e:
-        # Se der erro aqui, mostramos no login, mas retornamos vazio para não quebrar cache
+        # Retorna vazio e o erro será tratado na tela de login de forma amigavel
+        print(f"Erro conexao usuarios: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
@@ -226,7 +228,7 @@ def salvar_metas_faturamento(dicionario_metas):
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", data=df_novo)
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar metas faturamento: {e}")
+        st.error("Erro ao salvar metas. Tente novamente.")
         return False
 
 def salvar_metas_producao(dicionario_metas):
@@ -235,7 +237,7 @@ def salvar_metas_producao(dicionario_metas):
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", data=df_novo)
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar metas: {e}")
+        st.error("Erro ao salvar metas. Tente novamente.")
         return False
 
 def registrar_acesso(login, nome):
@@ -257,7 +259,7 @@ def salvar_nova_solicitacao(nome, email, login, senha):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro: {e}"); return False
+    except Exception as e: st.error("Erro ao processar solicitação."); return False
 
 def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
     try:
@@ -270,7 +272,7 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro: {e}"); return False
+    except Exception as e: st.error("Erro ao enviar pedido de foto."); return False
 
 def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
     try:
@@ -283,7 +285,7 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro: {e}"); return False
+    except Exception as e: st.error("Erro ao solicitar certificado."); return False
 
 def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
@@ -296,7 +298,7 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", data=df_final)
         return True
-    except Exception as e: st.error(f"Erro: {e}"); return False
+    except Exception as e: st.error("Erro ao solicitar nota fiscal."); return False
 
 def formatar_peso_brasileiro(valor):
     try:
@@ -678,11 +680,11 @@ if not st.session_state['logado']:
             if st.button("Acessar", type="primary"):
                 df = carregar_usuarios()
                 
-                # --- CORREÇÃO DE ERRO DE CONEXÃO ---
+                # --- PROTEÇÃO V50 (EVITA CRASH NO LOGIN) ---
                 if df.empty:
-                    st.error("Erro de conexão com o Banco de Dados. Verifique a planilha 'Sistema Dox'.")
+                    st.error("Falha temporária de conexão. Por favor, tente novamente.")
                 elif 'Login' not in df.columns or 'Senha' not in df.columns:
-                    st.error("A tabela de usuários não tem as colunas 'Login' ou 'Senha'. Verifique a planilha.")
+                    st.error("Erro técnico na validação do login. Contate o suporte.")
                 else:
                     try:
                         user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
@@ -693,7 +695,7 @@ if not st.session_state['logado']:
                             st.rerun()
                         else: st.error("Dados incorretos.")
                     except Exception as e:
-                        st.error(f"Erro ao processar login: {e}")
+                        st.error("Erro ao processar login. Tente novamente.")
 
             st.markdown("---")
             if st.button("Solicitar Acesso"): st.session_state['fazendo_cadastro'] = True; st.rerun()
@@ -723,8 +725,8 @@ else:
     elif st.session_state['usuario_tipo'].lower() == "master":
         a1, a2, a3, a4, a5 = st.tabs(["📂 Itens Programados", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_certificados(False) # False = vê só o seu
-        with a3: exibir_aba_notas(False)        # False = vê só o seu
+        with a2: exibir_aba_certificados(False) 
+        with a3: exibir_aba_notas(False)        
         with a4: exibir_aba_faturamento()
         with a5: exibir_aba_producao()
         
