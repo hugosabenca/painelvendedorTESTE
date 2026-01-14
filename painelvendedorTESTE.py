@@ -642,7 +642,6 @@ def exibir_aba_credito():
         return
 
     # --- FILTRO DE COLUNAS (VISUALIZAÇÃO) ---
-    # Garante que só pega colunas que existem no DF
     cols_existentes = [c for c in cols_order if c in df_filtrado.columns]
     df_final = df_filtrado[cols_existentes].copy()
 
@@ -655,7 +654,6 @@ def exibir_aba_credito():
     cols_dias = ["DIAS_PARA_VENCER_LC", "DIAS_PARA_VENCER_TITULO", "DIAS_EM_ATRASO_RECEBIVEIS"]
     for col in cols_dias:
         if col in df_final.columns:
-            # Converte para numero, se for valido vira INT e string, senao vazio
             df_final[col] = pd.to_numeric(df_final[col], errors='coerce').apply(lambda x: f"{int(x)}" if pd.notnull(x) else "")
 
     # 5. Formatação de Moeda
@@ -666,37 +664,102 @@ def exibir_aba_credito():
     # 6. Limpeza Visual Geral
     df_final = df_final.astype(str).replace(['None', 'nan', 'NaT', '<NA>', 'nan.0'], '')
 
-    # 7. Configuração de Colunas (Legendas)
+    # --- LEGENDA RETRÁTIL (NOVO) ---
+    with st.expander("ℹ️ Legenda: Entenda o significado de cada coluna (Clique para expandir)"):
+        st.markdown("""
+        **CLIENTE**: Nome do cliente cadastrado na empresa.
+        
+        **CNPJ**: CNPJ do cliente.
+        
+        **VENDEDOR**: Vendedor responsável pelo atendimento desse cliente.
+        
+        **GERENTE**: Gerente responsável pelo vendedor.
+        
+        **RISCO_DE_BLOQUEIO (ALTO / MEDIO / BAIXO)**: Indica a chance de o cliente bloquear o faturamento se nada for feito.
+        * **ALTO** → risco imediato de bloqueio
+        * **MEDIO** → atenção, pode virar problema
+        * **BAIXO** → situação controlada
+        
+        **MOTIVO_PROVAVEL_DO_BLOQUEIO**: Explica por que existe risco de bloqueio (ex: atraso, limite estourando, etc.).
+        
+        **ACAO_SUGERIDA**: Diz exatamente o que o vendedor deve fazer agora (cobrar, avisar cliente, etc.).
+        
+        **OPCAO_DE_FATURAMENTO**: Mostra como é possível faturar hoje, se houver crédito.
+        * Somente LC DOX
+        * Somente BV
+        * LC DOX e BV
+        * Nenhuma opção disponível (falar com Financeiro)
+        
+        **DATA_VENC_LC**: Data em que vence o limite de crédito do cliente.
+        
+        **DIAS_PARA_VENCER_LC**: Quantos dias faltam para o limite de crédito vencer (quanto menor, maior a urgência).
+        
+        **DATA_VENCIMENTO_MAIS_ANTIGA**: Data do título vencido mais antigo do cliente (se existir).
+        
+        **DIAS_EM_ATRASO_RECEBIVEIS**: Quantos dias o cliente está atrasado no título mais antigo vencido.
+        
+        **RECEBIVEIS**: Resumo da situação dos pagamentos do cliente.
+        * **Em Dia** → não há títulos vencidos
+        * **Em Atraso** → existe título vencido
+        
+        **SALDO_VENCIDO**: Valor total que o cliente já deveria ter pago e ainda não pagou.
+        
+        **SALDO_A_VENCER**: Valor total que o cliente ainda vai pagar, mas não venceu.
+        
+        **DIAS_PARA_VENCER_TITULO**: Quantos dias faltam para o próximo título vencer.
+        
+        **LC TOTAL**: Limite de crédito total aprovado para o cliente.
+        
+        **LC DOX**: Parte do limite que ainda pode ser usada após considerar os recebíveis (LC TOTAL – RA).
+        
+        **RA**: Valor de recebíveis considerados na análise de crédito.
+        
+        **EM ABERTO**: Valor de pedidos/títulos já faturados e ainda não pagos.
+        
+        **DISPONIVEL VIA RA**: Quanto sobra considerando RA e valores em aberto. (Se negativo, indica pressão no crédito).
+        
+        **DISPONIVEL VIA LC2**: Valor que o cliente ainda pode faturar hoje usando LC DOX. (Principal número para saber se dá para faturar).
+        
+        **LC BV**: Limite total disponível para faturamento via BV.
+        
+        **EM ABERTO BV**: Valor já utilizado em operações de BV que ainda não foram quitadas.
+        
+        **DISPONIVEL BV**: Quanto ainda pode ser faturado via BV. (LC BV – EM ABERTO BV).
+        
+        **VENCIMENTO LC**: Indica se o limite de crédito está **Válido** ou **Vencido**.
+        """)
+
+    # 7. Configuração de Colunas e Exibição
+    # (Mantive os helps tooltips pois não atrapalham, caso funcionem em algum navegador)
     config_colunas = {
         "CLIENTE": st.column_config.TextColumn("CLIENTE", help="Nome do cliente cadastrado na empresa."),
         "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ do cliente."),
         "VENDEDOR": st.column_config.TextColumn("VENDEDOR", help="Vendedor responsável pelo atendimento desse cliente."),
         "GERENTE": st.column_config.TextColumn("GERENTE", help="Gerente responsável pelo vendedor."),
-        "RISCO_DE_BLOQUEIO": st.column_config.TextColumn("RISCO_DE_BLOQUEIO", help="Indica a chance de o cliente bloquear o faturamento se nada for feito.\n\nALTO → risco imediato de bloqueio\nMEDIO → atenção, pode virar problema\nBAIXO → situação controlada"),
-        "MOTIVO_PROVAVEL_DO_BLOQUEIO": st.column_config.TextColumn("MOTIVO_PROVAVEL_DO_BLOQUEIO", help="Explica por que existe risco de bloqueio.\n\nExemplo: atraso, limite estourando ou vencendo, pouco crédito disponível."),
-        "ACAO_SUGERIDA": st.column_config.TextColumn("ACAO_SUGERIDA", help="Diz exatamente o que o vendedor deve fazer agora\n\n(cobrar, avisar cliente, falar com Financeiro, acompanhar, etc.)."),
-        "OPCAO_DE_FATURAMENTO": st.column_config.TextColumn("OPCAO_DE_FATURAMENTO", help="Mostra como é possível faturar hoje, se houver crédito:\n\nSomente LC DOX\nSomente BV\nLC DOX e BV\nNenhuma opção disponível (falar com Financeiro)"),
-        "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data em que vence o limite de crédito do cliente.\n\nSe passar dessa data sem renovar, pode bloquear faturamento."),
-        "DIAS_PARA_VENCER_LC": st.column_config.TextColumn("DIAS_PARA_VENCER_LC", help="Quantos dias faltam para o limite de crédito vencer.\n\nQuanto menor, maior a urgência."),
-        "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo do cliente (se existir).\n\nMostra há quanto tempo o cliente está em atraso."),
-        "DIAS_EM_ATRASO_RECEBIVEIS": st.column_config.TextColumn("DIAS_EM_ATRASO_RECEBIVEIS", help="Quantos dias o cliente está atrasado no título mais antigo vencido."),
-        "RECEBIVEIS": st.column_config.TextColumn("RECEBIVEIS", help="Resumo da situação dos pagamentos do cliente:\n\nEm Dia → não há títulos vencidos\nEm Atraso → existe título vencido"),
-        "SALDO_VENCIDO": st.column_config.TextColumn("SALDO_VENCIDO", help="Valor total que o cliente já deveria ter pago e ainda não pagou."),
-        "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor total que o cliente ainda vai pagar, mas não venceu."),
-        "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Quantos dias faltam para o próximo título vencer.\n\nAjuda a agir antes de virar atraso."),
-        "LC TOTAL": st.column_config.TextColumn("LC TOTAL", help="Limite de crédito total aprovado para o cliente."),
-        "LC DOX": st.column_config.TextColumn("LC DOX", help="Parte do limite que ainda pode ser usada após considerar os recebíveis.\n(LC TOTAL – RA)"),
-        "RA": st.column_config.TextColumn("RA", help="Valor de recebíveis considerados na análise de crédito."),
-        "EM ABERTO": st.column_config.TextColumn("EM ABERTO", help="Valor de pedidos/títulos já faturados e ainda não pagos."),
-        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONIVEL VIA RA", help="Quanto sobra considerando RA e valores em aberto.\n\nSe negativo, indica pressão no crédito."),
-        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONIVEL VIA LC2", help="Valor que o cliente ainda pode faturar hoje usando LC DOX.\n\nÉ o principal número para saber se dá para faturar."),
-        "LC BV": st.column_config.TextColumn("LC BV", help="Limite total disponível para faturamento via BV."),
-        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Valor já utilizado em operações de BV que ainda não foram quitadas."),
-        "DISPONIVEL BV": st.column_config.TextColumn("DISPONIVEL BV", help="Quanto ainda pode ser faturado via BV.\n(LC BV – EM ABERTO BV)"),
-        "VENCIMENTO LC": st.column_config.TextColumn("VENCIMENTO LC", help="Indica se o limite de crédito está:\n\nLC OK → válido\nLC Vencido → precisa de renovação imediata")
+        "RISCO_DE_BLOQUEIO": st.column_config.TextColumn("RISCO_DE_BLOQUEIO", help="Indica a chance de o cliente bloquear o faturamento se nada for feito."),
+        "MOTIVO_PROVAVEL_DO_BLOQUEIO": st.column_config.TextColumn("MOTIVO_PROVAVEL_DO_BLOQUEIO", help="Explica por que existe risco de bloqueio."),
+        "ACAO_SUGERIDA": st.column_config.TextColumn("ACAO_SUGERIDA", help="Diz exatamente o que o vendedor deve fazer agora."),
+        "OPCAO_DE_FATURAMENTO": st.column_config.TextColumn("OPCAO_DE_FATURAMENTO", help="Mostra como é possível faturar hoje."),
+        "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data em que vence o limite de crédito."),
+        "DIAS_PARA_VENCER_LC": st.column_config.TextColumn("DIAS_PARA_VENCER_LC", help="Quantos dias faltam para o limite vencer."),
+        "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo."),
+        "DIAS_EM_ATRASO_RECEBIVEIS": st.column_config.TextColumn("DIAS_EM_ATRASO_RECEBIVEIS", help="Dias de atraso do título mais antigo."),
+        "RECEBIVEIS": st.column_config.TextColumn("RECEBIVEIS", help="Resumo: Em Dia ou Em Atraso."),
+        "SALDO_VENCIDO": st.column_config.TextColumn("SALDO_VENCIDO", help="Valor total vencido e não pago."),
+        "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor a vencer."),
+        "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Dias para o próximo título vencer."),
+        "LC TOTAL": st.column_config.TextColumn("LC TOTAL", help="Limite total aprovado."),
+        "LC DOX": st.column_config.TextColumn("LC DOX", help="Limite utilizável (LC TOTAL - RA)."),
+        "RA": st.column_config.TextColumn("RA", help="Recebíveis considerados."),
+        "EM ABERTO": st.column_config.TextColumn("EM ABERTO", help="Valor faturado e não pago."),
+        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONIVEL VIA RA", help="Sobra considerando RA."),
+        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONIVEL VIA LC2", help="Valor livre para faturar hoje (LC DOX)."),
+        "LC BV": st.column_config.TextColumn("LC BV", help="Limite BV."),
+        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Utilizado em BV."),
+        "DISPONIVEL BV": st.column_config.TextColumn("DISPONIVEL BV", help="Livre em BV."),
+        "VENCIMENTO LC": st.column_config.TextColumn("VENCIMENTO LC", help="Status do vencimento do limite.")
     }
 
-    # 8. Exibição
     st.dataframe(
         df_final, 
         hide_index=True, 
