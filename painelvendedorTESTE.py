@@ -604,20 +604,21 @@ def exibir_aba_credito():
         return
 
     # 2. Definição das colunas solicitadas (Ordem Exata)
+    # AJUSTE: EM_ABERTO (com underline) para bater com SQL
     cols_order = [
         "CNPJ", "CLIENTE", "VENDEDOR", "GERENTE", "RECEBIVEIS", "VENCIMENTO LC", 
         "RISCO_DE_BLOQUEIO", "MOTIVO_PROVAVEL_DO_BLOQUEIO", "ACAO_SUGERIDA", 
         "OPCAO_DE_FATURAMENTO", "DATA_VENC_LC", "DIAS_PARA_VENCER_LC", 
         "DATA_VENCIMENTO_MAIS_ANTIGA", "DIAS_EM_ATRASO_RECEBIVEIS", "SALDO_VENCIDO", 
         "SALDO_A_VENCER", "DIAS_PARA_VENCER_TITULO", "LC TOTAL", "LC DOX", "RA", 
-        "EM ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
+        "EM_ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
         "EM ABERTO BV", "DISPONIVEL BV"
     ]
     
     # Colunas financeiras para formatar R$
     cols_financeiras = [
         "SALDO_VENCIDO", "SALDO_A_VENCER", "LC TOTAL", "LC DOX", "RA", 
-        "EM ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
+        "EM_ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
         "EM ABERTO BV", "DISPONIVEL BV"
     ]
 
@@ -664,7 +665,7 @@ def exibir_aba_credito():
     # 6. Limpeza Visual Geral
     df_final = df_final.astype(str).replace(['None', 'nan', 'NaT', '<NA>', 'nan.0'], '')
 
-    # --- LEGENDA RETRÁTIL (NOVO) ---
+    # --- LEGENDA RETRÁTIL ---
     with st.expander("ℹ️ Legenda: Entenda o significado de cada coluna (Clique para expandir)"):
         st.markdown("""
         **CLIENTE**: Nome do cliente cadastrado na empresa.
@@ -730,7 +731,7 @@ def exibir_aba_credito():
         """)
 
     # 7. Configuração de Colunas e Exibição
-    # (Mantive os helps tooltips pois não atrapalham, caso funcionem em algum navegador)
+    # AQUI: Mudei a chave para "EM_ABERTO" mas o título para "EM ABERTO" (sem underline)
     config_colunas = {
         "CLIENTE": st.column_config.TextColumn("CLIENTE", help="Nome do cliente cadastrado na empresa."),
         "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ do cliente."),
@@ -751,7 +752,7 @@ def exibir_aba_credito():
         "LC TOTAL": st.column_config.TextColumn("LC TOTAL", help="Limite total aprovado."),
         "LC DOX": st.column_config.TextColumn("LC DOX", help="Limite utilizável (LC TOTAL - RA)."),
         "RA": st.column_config.TextColumn("RA", help="Recebíveis considerados."),
-        "EM ABERTO": st.column_config.TextColumn("EM ABERTO", help="Valor faturado e não pago."),
+        "EM_ABERTO": st.column_config.TextColumn("EM ABERTO", help="Valor faturado e não pago."), # Ajustado
         "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONIVEL VIA RA", help="Sobra considerando RA."),
         "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONIVEL VIA LC2", help="Valor livre para faturar hoje (LC DOX)."),
         "LC BV": st.column_config.TextColumn("LC BV", help="Limite BV."),
