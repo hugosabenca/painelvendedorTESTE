@@ -41,17 +41,12 @@ def ler_dados_nuvem_generico(aba, url_planilha):
     try:
         df = conn.read(spreadsheet=url_planilha, worksheet=aba, ttl=0)
         if df.empty: return pd.DataFrame()
-        
-        # Normalização de Colunas
         df.columns = df.columns.str.strip().str.upper()
-        
         if 'TONS' in df.columns:
             df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
             df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
-        
         if 'DATA_EMISSAO' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
-            
         return df
     except Exception as e:
         print(f"Erro ao ler {aba}: {e}")
@@ -101,7 +96,6 @@ def carregar_metas_producao():
     except:
         return pd.DataFrame(columns=['MAQUINA', 'META'])
 
-# --- LOGIN SEM CACHE PARA EVITAR ERRO DE CONEXÃO PERSISTENTE ---
 def carregar_usuarios():
     try:
         df_users = conn.read(spreadsheet=URL_SISTEMA, worksheet="Usuarios", ttl=0)
@@ -175,60 +169,57 @@ def carregar_logs_acessos():
 @st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
     dados_consolidados = []
-    
-    # 1. LEITURA PINHEIRAL
     for aba in ABAS_PINHEIRAL:
         try:
             df = conn.read(spreadsheet=URL_PINHEIRAL, worksheet=aba, ttl=0, dtype=str)
             if not df.empty:
                 df['Máquina/Processo'] = aba
                 df['Filial_Origem'] = "PINHEIRAL"
-                
                 cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
                 cols_existentes = [c for c in cols_necessarias if c in df.columns]
-                
                 if "Vendedor Correto" in cols_existentes:
                     df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
                     if "Número do Pedido" in df_limpo.columns:
                         df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
                     dados_consolidados.append(df_limpo)
         except: continue
-
-    # 2. LEITURA BICAS
     for aba in ABAS_BICAS:
         try:
             df = conn.read(spreadsheet=URL_BICAS, worksheet=aba, ttl=0, dtype=str)
             if not df.empty:
                 df['Máquina/Processo'] = aba
                 df['Filial_Origem'] = "SJ BICAS"
-                
                 cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
                 cols_existentes = [c for c in cols_necessarias if c in df.columns]
-                
                 if "Vendedor Correto" in cols_existentes:
                     df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
                     if "Número do Pedido" in df_limpo.columns:
                         df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
                     dados_consolidados.append(df_limpo)
         except: continue
-
     if dados_consolidados: return pd.concat(dados_consolidados, ignore_index=True)
     return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_credito():
     try:
-        # Lê a aba de Crédito da Planilha Sistema Dox
         df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Credito", ttl=0)
         if df.empty: return pd.DataFrame()
-        # Normaliza colunas para maiúsculas e remove espaços
         df.columns = df.columns.str.strip().str.upper()
         return df
-    except Exception as e:
-        return pd.DataFrame()
+    except Exception as e: return pd.DataFrame()
+
+@st.cache_data(ttl="5m", show_spinner=False)
+def carregar_dados_carteira():
+    try:
+        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Carteira", ttl=0)
+        if df.empty: return pd.DataFrame()
+        df.columns = df.columns.str.strip().str.upper()
+        return df
+    except Exception as e: return pd.DataFrame()
 
 # ==============================================================================
-# FUNÇÕES DE ESCRITA (Mapeadas para URL_SISTEMA)
+# FUNÇÕES DE ESCRITA
 # ==============================================================================
 
 def salvar_metas_faturamento(dicionario_metas):
@@ -236,18 +227,14 @@ def salvar_metas_faturamento(dicionario_metas):
         df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['FILIAL', 'META'])
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", data=df_novo)
         return True
-    except Exception as e:
-        st.error("Erro ao salvar metas. Tente novamente.")
-        return False
+    except Exception as e: return False
 
 def salvar_metas_producao(dicionario_metas):
     try:
         df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['MAQUINA', 'META'])
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", data=df_novo)
         return True
-    except Exception as e:
-        st.error("Erro ao salvar metas. Tente novamente.")
-        return False
+    except Exception as e: return False
 
 def registrar_acesso(login, nome):
     try:
@@ -268,7 +255,7 @@ def salvar_nova_solicitacao(nome, email, login, senha):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", data=df_final)
         return True
-    except Exception as e: st.error("Erro ao processar solicitação."); return False
+    except Exception as e: return False
 
 def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
     try:
@@ -281,7 +268,7 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", data=df_final)
         return True
-    except Exception as e: st.error("Erro ao enviar pedido de foto."); return False
+    except Exception as e: return False
 
 def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
     try:
@@ -294,7 +281,7 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", data=df_final)
         return True
-    except Exception as e: st.error("Erro ao solicitar certificado."); return False
+    except Exception as e: return False
 
 def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
@@ -307,7 +294,7 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", data=df_final)
         return True
-    except Exception as e: st.error("Erro ao solicitar nota fiscal."); return False
+    except Exception as e: return False
 
 def formatar_peso_brasileiro(valor):
     try:
@@ -319,13 +306,10 @@ def formatar_peso_brasileiro(valor):
 
 def formatar_moeda(valor):
     try:
-        # Tenta converter para float se for string com vírgula
-        if isinstance(valor, str):
-            valor = float(valor.replace('.', '').replace(',', '.'))
+        if isinstance(valor, str): valor = float(valor.replace('.', '').replace(',', '.'))
         if pd.isna(valor): return "R$ 0,00"
         return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except:
-        return str(valor)
+    except: return str(valor)
 
 # ==============================================================================
 # UI
@@ -335,56 +319,44 @@ def plotar_grafico_faturamento(df_filtrado, titulo_grafico, meta_valor=None):
     if df_filtrado.empty:
         st.warning(f"Sem dados para {titulo_grafico} neste período.")
         return
-
     def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-    
     df_hoje = df_filtrado[df_filtrado['DATA_DT'].dt.date == hoje_normalizado.date()]
     val_hoje = df_hoje['TONS'].sum()
     txt_hoje = f"**Hoje ({hoje_normalizado.strftime('%d/%m')}):** {fmt_br(val_hoje)} Ton"
-
     df_last = df_filtrado[(df_filtrado['TONS'] > 0) & (df_filtrado['DATA_DT'].dt.date < hoje_normalizado.date())].sort_values('DATA_DT', ascending=False)
     if not df_last.empty:
         last_date = df_last['DATA_DT'].max()
         last_val = df_last[df_last['DATA_DT'] == last_date]['TONS'].sum()
         txt_last = f"**Último Faturamento ({last_date.strftime('%d/%m')}):** {fmt_br(last_val)} Ton"
-    else:
-        txt_last = "**Último Faturamento:** -"
-
+    else: txt_last = "**Último Faturamento:** -"
     st.markdown(f"### {titulo_grafico}")
     st.markdown(f"{txt_hoje} | {txt_last}")
-
     df_chart = df_filtrado.copy()
     df_chart['DATA_STR'] = df_chart['DATA_DT'].dt.strftime('%d/%m/%Y')
     df_chart['TONS_TXT'] = df_chart['TONS'].apply(lambda x: f"{x:.1f}".replace('.', ','))
-
     base = alt.Chart(df_chart).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
     barras = base.mark_bar(color='#0078D4', size=40).encode(y=alt.Y('TONS', title='Toneladas'), tooltip=['DATA_STR', 'TONS'])
     rotulos = base.mark_text(dy=-10, color='black').encode(y=alt.Y('TONS'), text=alt.Text('TONS_TXT'))
     grafico = (barras + rotulos)
-
     if meta_valor is not None and meta_valor > 0:
         regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
         texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
         grafico = (grafico + regra_meta + texto_meta)
-
     grafico = grafico.properties(height=400)
     st.altair_chart(grafico, use_container_width=True)
     st.divider()
 
 def exibir_aba_faturamento():
     st.subheader("📊 Painel de Faturamento")
-    
     if st.button("🔄 Atualizar Gráfico"):
         with st.spinner("Buscando dados sincronizados..."):
             st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
             st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
             st.session_state['metas_faturamento'] = carregar_metas_faturamento()
-
     if 'metas_faturamento' not in st.session_state: st.session_state['metas_faturamento'] = carregar_metas_faturamento()
     if 'dados_faturamento' not in st.session_state: st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
     if 'dados_faturamento_transf' not in st.session_state: st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
-
     with st.expander("⚙️ Definir Meta (tons)"):
         with st.form("form_metas_fat"):
             st.caption("Defina a meta diária de faturamento para PINHEIRAL (Direto).")
@@ -394,22 +366,17 @@ def exibir_aba_faturamento():
             if not df_m.empty:
                 filtro = df_m[df_m['FILIAL'] == 'PINHEIRAL']
                 if not filtro.empty: valor_atual = float(filtro.iloc[0]['META'])
-            
             novas_metas['PINHEIRAL'] = st.number_input("PINHEIRAL", value=valor_atual, step=1.0, min_value=0.0)
-            
             if st.form_submit_button("💾 Salvar Metas"):
                 if salvar_metas_faturamento(novas_metas):
                     st.success("Meta atualizada!")
                     st.session_state['metas_faturamento'] = carregar_metas_faturamento()
                     st.rerun()
     st.divider()
-
     periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="fat_periodo")
     hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-    
     if periodo == "Últimos 7 Dias": data_limite = hoje_normalizado - timedelta(days=6)
     else: data_limite = hoje_normalizado.replace(day=1)
-
     df_direto = st.session_state['dados_faturamento']
     if not df_direto.empty:
         df_filtro_direto = df_direto[df_direto['DATA_DT'].dt.date >= data_limite.date()]
@@ -420,7 +387,6 @@ def exibir_aba_faturamento():
             if not fmeta.empty: meta_direto = float(fmeta.iloc[0]['META'])
         plotar_grafico_faturamento(df_filtro_direto, "Faturamento Direto: Pinheiral", meta_direto)
     else: st.info("Sem dados de Faturamento Direto carregados.")
-
     df_transf = st.session_state['dados_faturamento_transf']
     if not df_transf.empty:
         df_filtro_transf = df_transf[df_transf['DATA_DT'].dt.date >= data_limite.date()]
@@ -434,12 +400,10 @@ def exibir_aba_producao():
             st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
             st.session_state['metas_producao'] = carregar_metas_producao()
     if 'metas_producao' not in st.session_state: st.session_state['metas_producao'] = carregar_metas_producao()
-
     with st.expander("⚙️ Definir Metas Diárias (Tons)"):
         if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
             lista_maquinas = sorted(st.session_state['dados_producao']['MAQUINA'].unique())
         else: lista_maquinas = ["Divimec 1", "Divimec 2", "Endireitadeira", "Esquadros", "Fagor", "Marafon"]
-
         with st.form("form_metas"):
             st.caption("Defina a meta diária (Tons) para cada máquina.")
             novas_metas = {}
@@ -454,21 +418,17 @@ def exibir_aba_producao():
             if st.form_submit_button("💾 Salvar Metas"):
                 if salvar_metas_producao(novas_metas): st.success("Metas atualizadas!"); st.session_state['metas_producao'] = carregar_metas_producao(); st.rerun()
     st.divider()
-
     if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
         df = st.session_state['dados_producao']
         df_metas = st.session_state['metas_producao']
         periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="prod_periodo")
         hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-        
         if periodo == "Últimos 7 Dias": data_limite = hoje_normalizado - timedelta(days=6) 
         else: data_limite = hoje_normalizado.replace(day=1)
         df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
-
         if df_filtro.empty: 
             st.warning("Nenhum dado encontrado para este período.")
             return
-
         total_prod = df_filtro['VOLUME'].sum()
         dias_unicos = df_filtro['DATA_DT'].nunique()
         media_diaria = total_prod / dias_unicos if dias_unicos > 0 else 0
@@ -476,20 +436,16 @@ def exibir_aba_producao():
         k1.metric("Total Produzido", f"{total_prod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " Ton")
         k2.metric("Média Diária", f"{media_diaria:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " Ton")
         st.divider()
-
         maquinas = sorted(df_filtro['MAQUINA'].unique())
         def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
         for mq in maquinas:
             df_mq = df_filtro[df_filtro['MAQUINA'] == mq].copy()
             st.markdown(f"### Produção: {mq}")
-            
             df_hoje = df_mq[df_mq['DATA_DT'].dt.date == hoje_normalizado.date()]
             hoje_a = df_hoje[df_hoje['TURNO'] == 'Turno A']['VOLUME'].sum()
             hoje_c = df_hoje[df_hoje['TURNO'] == 'Turno C']['VOLUME'].sum()
             hoje_total = hoje_a + hoje_c
             texto_hoje = f"**Hoje ({hoje_normalizado.strftime('%d/%m')}):** Turno A: {fmt_br(hoje_a)} | Turno C: {fmt_br(hoje_c)} | **Total: {fmt_br(hoje_total)}**"
-
             df_hist = df_mq[(df_mq['VOLUME'] > 0) & (df_mq['DATA_DT'].dt.date < hoje_normalizado.date())]
             if not df_hist.empty:
                 last_date = df_hist['DATA_DT'].max()
@@ -499,63 +455,44 @@ def exibir_aba_producao():
                 last_total = last_a + last_c
                 texto_last = f"**Última Produção ({last_date.strftime('%d/%m')}):** Turno A: {fmt_br(last_a)} | Turno C: {fmt_br(last_c)} | **Total: {fmt_br(last_total)}**"
             else: texto_last = "**Última Produção:** -"
-
             st.markdown(texto_hoje); st.markdown(texto_last)
-
             df_mq['VOLUME_TXT'] = df_mq['VOLUME'].apply(lambda x: f"{x:.1f}".replace('.', ','))
             meta_valor = 0
             if not df_metas.empty:
                 filtro_meta = df_metas[df_metas['MAQUINA'] == mq]
                 if not filtro_meta.empty: meta_valor = float(filtro_meta.iloc[0]['META'])
-
             base = alt.Chart(df_mq).encode(x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=0)))
             barras = base.mark_bar().encode(xOffset='TURNO', y=alt.Y('VOLUME', title='Tons'), color=alt.Color('TURNO', legend=alt.Legend(title="Turno", orient='top')), tooltip=['DATA', 'TURNO', 'VOLUME'])
             rotulos = base.mark_text(dy=-10, color='black').encode(xOffset='TURNO', y=alt.Y('VOLUME'), text=alt.Text('VOLUME_TXT'))
             regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
             texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
-            
             grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(height=350)
             st.altair_chart(grafico_final, use_container_width=True)
             st.markdown("---")
-            
     elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
         st.warning("Nenhum dado na planilha de produção.")
-    else:
-        st.info("Clique no botão para carregar.")
+    else: st.info("Clique no botão para carregar.")
 
 def exibir_carteira_pedidos():
-    # REMOVIDO TITULO AQUI
     tipo_usuario = st.session_state['usuario_tipo'].lower()
-    
-    # CACHE ATIVADO
     df_total = carregar_dados_pedidos()
-    
     if df_total is not None and not df_total.empty:
         df_total = df_total.dropna(subset=["Número do Pedido"])
         df_total = df_total[~df_total["Número do Pedido"].isin(["000nan", "00None", "000000"])]
-        
         filtro_filial = st.selectbox("Selecione a Filial:", ["Todas", "PINHEIRAL", "SJ BICAS"])
         if filtro_filial != "Todas":
             df_total = df_total[df_total["Filial_Origem"] == filtro_filial]
-
         nome_filtro = st.session_state['usuario_filtro']
-        
-        # === PERFIL ADMIN, GERENTE OU MASTER (VEEM TUDO) ===
         if tipo_usuario in ["admin", "gerente", "master"]:
             vendedores_unicos = sorted(df_total["Vendedor Correto"].dropna().unique())
             filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos)
             if filtro_vendedor != "Todos": df_filtrado = df_total[df_total["Vendedor Correto"] == filtro_vendedor].copy()
             else: df_filtrado = df_total.copy()
-            
-        # === PERFIL GERENTE COMERCIAL (VÊ APENAS SUA EQUIPE) ===
         elif tipo_usuario == "gerente comercial":
             if "Gerente Correto" in df_total.columns: df_filtrado = df_total[df_total["Gerente Correto"].str.lower() == nome_filtro.lower()].copy()
             else: df_filtrado = pd.DataFrame()
-            
-        # === PERFIL VENDEDOR (VÊ APENAS O SEU) ===
         else: 
             df_filtrado = df_total[df_total["Vendedor Correto"].str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
-
         if df_filtrado.empty: st.info(f"Nenhum pedido pendente encontrado para a filial selecionada.")
         else:
             df_filtrado['Quantidade_Num'] = pd.to_numeric(df_filtrado['Quantidade'], errors='coerce').fillna(0)
@@ -564,17 +501,13 @@ def exibir_carteira_pedidos():
                 df_filtrado['Prazo_dt'] = pd.to_datetime(df_filtrado['Prazo'], dayfirst=True, errors='coerce')
                 df_filtrado['Prazo'] = df_filtrado['Prazo_dt'].dt.strftime('%d/%m/%Y').fillna("-")
             except: pass
-            
             colunas_visiveis = ["Número do Pedido", "Filial_Origem", "Cliente Correto", "Produto", "Peso (ton)", "Prazo", "Máquina/Processo"]
-            
             if tipo_usuario in ["admin", "gerente", "gerente comercial", "master"]: 
                 colunas_visiveis.insert(6, "Vendedor Correto")
                 if "Gerente Correto" in df_total.columns:
                     colunas_visiveis.insert(7, "Gerente Correto")
-
             colunas_finais = [c for c in colunas_visiveis if c in df_filtrado.columns]
             df_final = df_filtrado[colunas_finais]
-            
             total_pedidos = len(df_filtrado)
             total_peso = df_filtrado['Quantidade_Num'].sum()
             total_peso_str = f"{total_peso:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -582,30 +515,27 @@ def exibir_carteira_pedidos():
             kpi1.metric("Itens Programados:", total_pedidos)
             kpi2.metric("Volume Total (Tons):", total_peso_str)
             st.divider()
-            
             texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido, Produto...):")
             if texto_busca:
                 mask = df_final.astype(str).apply(lambda x: x.str.contains(texto_busca, case=False, na=False)).any(axis=1)
                 df_exibicao = df_final[mask]
             else: df_exibicao = df_final
-            
             st.dataframe(df_exibicao, hide_index=True, use_container_width=True, column_config={"Prazo": st.column_config.TextColumn("Previsão"), "Filial_Origem": st.column_config.TextColumn("Filial")})
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
     else: st.error("Não foi possível carregar a planilha de pedidos.")
 
 def exibir_aba_credito():
-    # --- TÍTULO COM AVISO DE TESTE (V56) ---
     st.markdown("### 💰 Painel de Crédito <small style='font-weight: normal; font-size: 14px; color: gray;'>(Aba em teste. Qualquer divergência, por favor reporte.)</small>", unsafe_allow_html=True)
     
-    # 1. Carrega dados da aba Dados_Credito
+    # 1. Carrega Dados
     df_credito = carregar_dados_credito()
+    df_carteira = carregar_dados_carteira()
     
     if df_credito.empty:
         st.info("Nenhuma informação de crédito disponível no momento.")
         return
 
-    # 2. Definição das colunas (Ordem Exata V56)
-    # IMPORTANTE: Mapeando nome real (SQL) para ordem solicitada
+    # 2. Definição das Colunas (Ordem V56)
     cols_order = [
         "CNPJ", "CLIENTE", "VENDEDOR", "GERENTE", "RISCO_DE_BLOQUEIO", "ACAO_SUGERIDA", "MOTIVO_PROVAVEL_DO_BLOQUEIO",
         "OPCAO_DE_FATURAMENTO", "RECEBIVEIS", "DIAS_EM_ATRASO_RECEBIVEIS", "SALDO_VENCIDO", "VENCIMENTO LC",
@@ -613,64 +543,110 @@ def exibir_aba_credito():
         "SALDO_A_VENCER", "DIAS_PARA_VENCER_TITULO", "DATA_VENCIMENTO_MAIS_ANTIGA", "LC DOX", "LC BV", "LC TOTAL",
         "RA", "EM_ABERTO", "EM ABERTO BV"
     ]
-    
-    # Colunas financeiras para formatar R$
     cols_financeiras = [
         "SALDO_VENCIDO", "SALDO_A_VENCER", "LC TOTAL", "LC DOX", "RA", 
         "EM_ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
         "EM ABERTO BV", "DISPONIVEL BV"
     ]
 
-    # 3. Filtragem por Tipo de Usuário
+    # 3. Filtragem Global (Vendedor Logado)
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     nome_usuario = st.session_state['usuario_filtro']
     
-    # --- FILTRO DE LINHAS ---
     if tipo_usuario in ["admin", "master", "gerente"]:
-        # Vê tudo
-        df_filtrado = df_credito.copy()
+        df_base = df_credito.copy()
     else:
-        # Vendedor: Vê apenas sua carteira
+        # Vendedor: filtra apenas sua carteira
         if "VENDEDOR" in df_credito.columns:
-            # Filtro case-insensitive parcial ou exato
-            df_filtrado = df_credito[df_credito["VENDEDOR"].str.lower().str.contains(nome_usuario.lower(), na=False)].copy()
+            df_base = df_credito[df_credito["VENDEDOR"].str.lower().str.contains(nome_usuario.lower(), na=False)].copy()
         else:
-            df_filtrado = pd.DataFrame()
+            df_base = pd.DataFrame()
 
-    if df_filtrado.empty:
+    if df_base.empty:
         st.info("Nenhum cliente encontrado na sua carteira de crédito.")
         return
 
-    # --- FILTRO DE COLUNAS (VISUALIZAÇÃO) ---
-    cols_existentes = [c for c in cols_order if c in df_filtrado.columns]
-    df_final = df_filtrado[cols_existentes].copy()
+    # 4. Tratamento Prévio (Para ambas as tabelas)
+    # Seleção de colunas existentes
+    cols_existentes = [c for c in cols_order if c in df_base.columns]
+    df_base = df_base[cols_existentes].copy()
 
-    # Se for vendedor, remove VENDEDOR e GERENTE da visualização
+    # Ocultar colunas para vendedor
     if tipo_usuario not in ["admin", "master"]:
-        if "VENDEDOR" in df_final.columns: df_final = df_final.drop(columns=["VENDEDOR"])
-        if "GERENTE" in df_final.columns: df_final = df_final.drop(columns=["GERENTE"])
+        if "VENDEDOR" in df_base.columns: df_base = df_base.drop(columns=["VENDEDOR"])
+        if "GERENTE" in df_base.columns: df_base = df_base.drop(columns=["GERENTE"])
 
-    # 4. Tratamento de Dias (Remover .0)
+    # Tratamento de Dias (sem .0)
     cols_dias = ["DIAS_PARA_VENCER_LC", "DIAS_PARA_VENCER_TITULO", "DIAS_EM_ATRASO_RECEBIVEIS"]
     for col in cols_dias:
-        if col in df_final.columns:
-            df_final[col] = pd.to_numeric(df_final[col], errors='coerce').apply(lambda x: f"{int(x)}" if pd.notnull(x) else "")
+        if col in df_base.columns:
+            df_base[col] = pd.to_numeric(df_base[col], errors='coerce').apply(lambda x: f"{int(x)}" if pd.notnull(x) else "")
 
-    # 5. Formatação de Moeda
+    # Formatação Moeda
     for col in cols_financeiras:
-        if col in df_final.columns:
-            df_final[col] = df_final[col].apply(formatar_moeda)
+        if col in df_base.columns:
+            df_base[col] = df_base[col].apply(formatar_moeda)
 
-    # 6. Limpeza Visual Geral
-    df_final = df_final.astype(str).replace(['None', 'nan', 'NaT', '<NA>', 'nan.0'], '')
+    # Limpeza Visual
+    df_base = df_base.astype(str).replace(['None', 'nan', 'NaT', '<NA>', 'nan.0'], '')
 
-    # --- NOVO FILTRO DE BUSCA (V56) ---
-    texto_busca_credito = st.text_input("🔍 Filtrar Clientes (CNPJ, Nome, Vendedor...):")
+    # 5. Filtro de Busca (Texto) - Aplica sobre a base já tratada
+    texto_busca_credito = st.text_input("🔍 Filtrar Clientes (CNPJ, Nome...):")
     if texto_busca_credito:
-        mask = df_final.astype(str).apply(lambda x: x.str.contains(texto_busca_credito, case=False, na=False)).any(axis=1)
-        df_final = df_final[mask]
+        mask = df_base.astype(str).apply(lambda x: x.str.contains(texto_busca_credito, case=False, na=False)).any(axis=1)
+        df_base = df_base[mask]
 
-    # --- LEGENDA RETRÁTIL ATUALIZADA (V56) ---
+    # 6. Separação: Com Pedido vs Sem Pedido
+    lista_clientes_com_pedido = []
+    if not df_carteira.empty and "CLIENTE" in df_carteira.columns:
+        # Pega lista única de nomes de clientes que têm pedido
+        lista_clientes_com_pedido = df_carteira["CLIENTE"].unique().tolist()
+
+    if "CLIENTE" in df_base.columns:
+        df_prioridade = df_base[df_base["CLIENTE"].isin(lista_clientes_com_pedido)].copy()
+    else:
+        df_prioridade = pd.DataFrame()
+
+    # Configuração das Colunas (Labels/Tooltips)
+    config_colunas = {
+        "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
+        "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ."),
+        "VENDEDOR": st.column_config.TextColumn("Vendedor", help="Vendedor."),
+        "GERENTE": st.column_config.TextColumn("Gerente", help="Gerente."),
+        "RISCO_DE_BLOQUEIO": st.column_config.TextColumn("RISCO_DE_BLOQUEIO", help="Nível de risco de bloqueio (ALTO/MÉDIO/BAIXO)."),
+        "ACAO_SUGERIDA": st.column_config.TextColumn("ACAO_SUGERIDA", help="Orientação do que fazer."),
+        "MOTIVO_PROVAVEL_DO_BLOQUEIO": st.column_config.TextColumn("MOTIVO_PROVAVEL_DO_BLOQUEIO", help="Motivo do risco."),
+        "OPCAO_DE_FATURAMENTO": st.column_config.TextColumn("OPCAO_DE_FATURAMENTO", help="Opção de faturamento disponível."),
+        "RECEBIVEIS": st.column_config.TextColumn("RECEBÍVEIS", help="Status dos pagamentos (Em Dia / Em Atraso)."),
+        "DIAS_EM_ATRASO_RECEBIVEIS": st.column_config.TextColumn("DIAS_EM_ATRASO_RECEBIVEIS", help="Dias de atraso do título mais antigo."),
+        "SALDO_VENCIDO": st.column_config.TextColumn("SALDO_VENCIDO", help="Valor vencido em aberto."),
+        "VENCIMENTO LC": st.column_config.TextColumn("VENCIMENTO LC", help="Status do limite (OK / Vencido)."),
+        "DIAS_PARA_VENCER_LC": st.column_config.TextColumn("DIAS_PARA_VENCER_LC", help="Dias para vencer o limite."),
+        "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data de vencimento do limite."),
+        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONÍVEL VIA LC2", help="Valor livre no Limite DOX."),
+        "DISPONIVEL BV": st.column_config.TextColumn("DISPONÍVEL BV", help="Valor livre no Limite BV."),
+        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONÍVEL VIA RA", help="Valor livre via RA."),
+        "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor a vencer."),
+        "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Dias para o próximo título vencer."),
+        "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo."),
+        "LC DOX": st.column_config.TextColumn("LC_DOX", help="Limite DOX disponível."),
+        "LC BV": st.column_config.TextColumn("LC_BV", help="Limite BV total."),
+        "LC TOTAL": st.column_config.TextColumn("LC_TOTAL", help="Limite total."),
+        "RA": st.column_config.TextColumn("RA", help="Valor em RA."),
+        "EM_ABERTO": st.column_config.TextColumn("EM ABERTO", help="Total em aberto."),
+        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Total em aberto BV.")
+    }
+
+    # 7. Renderização das Tabelas
+    if not df_prioridade.empty:
+        st.markdown("#### 🔥 Clientes com Pedidos Abertos (Prioridade)", help="Mostra apenas os clientes da sua carteira que possuem pedidos pendentes no sistema.")
+        st.dataframe(df_prioridade, hide_index=True, use_container_width=True, column_config=config_colunas)
+        st.divider()
+    
+    st.markdown("#### 📋 Todos os Clientes (Carteira Completa)")
+    st.dataframe(df_base, hide_index=True, use_container_width=True, column_config=config_colunas)
+
+    # 8. Legenda Geral
     with st.expander("ℹ️ Legenda: Entenda o significado de cada coluna (Clique para expandir)"):
         st.markdown("""
         **CLIENTE**: Nome do cliente cadastrado na empresa.
@@ -737,44 +713,6 @@ def exibir_aba_credito():
         
         **EM ABERTO BV**: Valor total de títulos em aberto vinculados à modalidade BV.
         """)
-
-    # 7. Configuração de Colunas (Labels/Títulos atualizados)
-    config_colunas = {
-        "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
-        "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ."),
-        "VENDEDOR": st.column_config.TextColumn("Vendedor", help="Vendedor."),
-        "GERENTE": st.column_config.TextColumn("Gerente", help="Gerente."),
-        "RISCO_DE_BLOQUEIO": st.column_config.TextColumn("RISCO_DE_BLOQUEIO", help="Nível de risco de bloqueio (ALTO/MÉDIO/BAIXO)."),
-        "ACAO_SUGERIDA": st.column_config.TextColumn("ACAO_SUGERIDA", help="Orientação do que fazer."),
-        "MOTIVO_PROVAVEL_DO_BLOQUEIO": st.column_config.TextColumn("MOTIVO_PROVAVEL_DO_BLOQUEIO", help="Motivo do risco."),
-        "OPCAO_DE_FATURAMENTO": st.column_config.TextColumn("OPCAO_DE_FATURAMENTO", help="Opção de faturamento disponível."),
-        "RECEBIVEIS": st.column_config.TextColumn("RECEBÍVEIS", help="Status dos pagamentos (Em Dia / Em Atraso)."),
-        "DIAS_EM_ATRASO_RECEBIVEIS": st.column_config.TextColumn("DIAS_EM_ATRASO_RECEBIVEIS", help="Dias de atraso do título mais antigo."),
-        "SALDO_VENCIDO": st.column_config.TextColumn("SALDO_VENCIDO", help="Valor vencido em aberto."),
-        "VENCIMENTO LC": st.column_config.TextColumn("VENCIMENTO LC", help="Status do limite (OK / Vencido)."),
-        "DIAS_PARA_VENCER_LC": st.column_config.TextColumn("DIAS_PARA_VENCER_LC", help="Dias para vencer o limite."),
-        "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data de vencimento do limite."),
-        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONÍVEL VIA LC2", help="Valor livre no Limite DOX."),
-        "DISPONIVEL BV": st.column_config.TextColumn("DISPONÍVEL BV", help="Valor livre no Limite BV."),
-        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONÍVEL VIA RA", help="Valor livre via RA."),
-        "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor a vencer."),
-        "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Dias para o próximo título vencer."),
-        "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo."),
-        "LC DOX": st.column_config.TextColumn("LC_DOX", help="Limite DOX disponível."),
-        "LC BV": st.column_config.TextColumn("LC_BV", help="Limite BV total."),
-        "LC TOTAL": st.column_config.TextColumn("LC_TOTAL", help="Limite total."),
-        "RA": st.column_config.TextColumn("RA", help="Valor em RA."),
-        "EM_ABERTO": st.column_config.TextColumn("EM ABERTO", help="Total em aberto."),
-        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Total em aberto BV.")
-    }
-
-    st.dataframe(
-        df_final, 
-        hide_index=True, 
-        use_container_width=True,
-        column_config=config_colunas
-    )
-
 
 def exibir_aba_fotos(is_admin=False):
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
@@ -877,8 +815,6 @@ if not st.session_state['logado']:
             s = st.text_input("Senha", type="password").strip()
             if st.button("Acessar", type="primary"):
                 df = carregar_usuarios()
-                
-                # --- PROTEÇÃO V50 (EVITA CRASH NO LOGIN) ---
                 if df.empty:
                     st.error("Falha temporária de conexão. Por favor, tente novamente.")
                 elif 'Login' not in df.columns or 'Senha' not in df.columns:
@@ -894,7 +830,6 @@ if not st.session_state['logado']:
                         else: st.error("Dados incorretos.")
                     except Exception as e:
                         st.error("Erro ao processar login. Tente novamente.")
-
             st.markdown("---")
             if st.button("Solicitar Acesso"): st.session_state['fazendo_cadastro'] = True; st.rerun()
 else:
