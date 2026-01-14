@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import altair as alt
+import time  # Importado para gerenciar a pausa nas tentativas de leitura
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E URLS
@@ -33,29 +34,35 @@ except Exception:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==============================================================================
-# FUNÇÕES DE LEITURA (COM CACHE E DIAGNÓSTICO)
+# FUNÇÕES DE LEITURA BLINDADAS (COM RETRY LOGIC)
 # ==============================================================================
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def ler_dados_nuvem_generico(aba, url_planilha):
-    try:
-        df = conn.read(spreadsheet=url_planilha, worksheet=aba, ttl=0)
-        if df.empty: return pd.DataFrame()
-        
-        # Normalização de Colunas
-        df.columns = df.columns.str.strip().str.upper()
-        
-        if 'TONS' in df.columns:
-            df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
-            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
-        
-        if 'DATA_EMISSAO' in df.columns:
-            df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
+    # Tenta ler até 3 vezes se a tabela vier vazia (proteção contra o 'limpar' do robô)
+    for tentativa in range(3):
+        try:
+            df = conn.read(spreadsheet=url_planilha, worksheet=aba, ttl=0)
+            if not df.empty:
+                # Normalização de Colunas
+                df.columns = df.columns.str.strip().str.upper()
+                
+                if 'TONS' in df.columns:
+                    df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
+                    df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
+                
+                if 'DATA_EMISSAO' in df.columns:
+                    df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
+                    
+                return df
+            else:
+                # Se veio vazia, espera 2s antes de tentar de novo
+                time.sleep(2)
+        except Exception as e:
+            print(f"Erro leitura {aba} (tentativa {tentativa+1}): {e}")
+            time.sleep(2)
             
-        return df
-    except Exception as e:
-        print(f"Erro ao ler {aba}: {e}")
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 def carregar_dados_faturamento_direto():
     return ler_dados_nuvem_generico("Dados_Faturamento", URL_SISTEMA)
@@ -77,17 +84,21 @@ def carregar_metas_faturamento():
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_dados_producao_nuvem():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Producao", ttl=0)
-        if df.empty: return pd.DataFrame()
-        df.columns = df.columns.str.strip().str.upper()
-        if 'VOLUME' in df.columns:
-            df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        if 'DATA' in df.columns:
-            df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
-        return df
-    except Exception as e:
-        return pd.DataFrame()
+    for tentativa in range(3):
+        try:
+            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Producao", ttl=0)
+            if not df.empty:
+                df.columns = df.columns.str.strip().str.upper()
+                if 'VOLUME' in df.columns:
+                    df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+                if 'DATA' in df.columns:
+                    df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
+                return df
+            else:
+                time.sleep(2)
+        except Exception as e:
+            time.sleep(2)
+    return pd.DataFrame()
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_producao():
@@ -217,26 +228,38 @@ def carregar_dados_pedidos():
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_credito():
-    try:
-        # Lê a aba de Crédito da Planilha Sistema Dox
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Credito", ttl=0)
-        if df.empty: return pd.DataFrame()
-        # Normaliza colunas para maiúsculas e remove espaços
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    except Exception as e:
-        return pd.DataFrame()
+    # Tentativa de leitura resiliente (3x)
+    for tentativa in range(3):
+        try:
+            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Credito", ttl=0, dtype=str)
+            if not df.empty:
+                # Normaliza colunas
+                df.columns = df.columns.str.strip().str.upper()
+                return df
+            else:
+                # Espera 2s antes de tentar de novo
+                time.sleep(2)
+        except Exception as e:
+            time.sleep(2)
+            
+    # Se falhar 3x, retorna vazio
+    return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_carteira():
-    try:
-        # Lê a aba de Carteira da Planilha Sistema Dox
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Carteira", ttl=0)
-        if df.empty: return pd.DataFrame()
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    except Exception as e:
-        return pd.DataFrame()
+    # Tentativa de leitura resiliente (3x)
+    for tentativa in range(3):
+        try:
+            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Carteira", ttl=0, dtype=str)
+            if not df.empty:
+                df.columns = df.columns.str.strip().str.upper()
+                return df
+            else:
+                time.sleep(2)
+        except Exception as e:
+            time.sleep(2)
+            
+    return pd.DataFrame()
 
 # ==============================================================================
 # FUNÇÕES DE ESCRITA (Mapeadas para URL_SISTEMA)
@@ -675,12 +698,12 @@ def exibir_aba_credito():
         **EM ABERTO BV**: Valor total de títulos em aberto vinculados à modalidade BV.
         """)
 
-    # 1. Carrega Dados
+    # 1. Carrega Dados (Com Retry Logic)
     df_credito = carregar_dados_credito()
     df_carteira = carregar_dados_carteira()
     
     if df_credito.empty:
-        st.info("Nenhuma informação de crédito disponível no momento.")
+        st.info("Nenhuma informação de crédito disponível no momento (Aguardando sincronização do Robô).")
         return
 
     # 2. Definição das Colunas (Ordem V56)
@@ -701,17 +724,22 @@ def exibir_aba_credito():
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     nome_usuario = st.session_state['usuario_filtro']
     
+    # Normaliza nome para evitar erro de espaço
+    nome_usuario_limpo = nome_usuario.strip().lower()
+
     if tipo_usuario in ["admin", "master", "gerente"]:
         df_base = df_credito.copy()
     else:
-        # Vendedor: filtra apenas sua carteira
+        # Vendedor: filtra apenas sua carteira (Case Insensitive e Trimmed)
         if "VENDEDOR" in df_credito.columns:
-            df_base = df_credito[df_credito["VENDEDOR"].str.lower().str.contains(nome_usuario.lower(), na=False)].copy()
+            # Remove espaços da coluna VENDEDOR antes de filtrar
+            df_credito["VENDEDOR_CLEAN"] = df_credito["VENDEDOR"].astype(str).str.strip().str.lower()
+            df_base = df_credito[df_credito["VENDEDOR_CLEAN"].str.contains(nome_usuario_limpo, na=False)].copy()
         else:
             df_base = pd.DataFrame()
 
     if df_base.empty:
-        st.info("Nenhum cliente encontrado na sua carteira de crédito.")
+        st.info(f"Nenhum cliente encontrado para o vendedor: {nome_usuario}")
         return
 
     # 4. Tratamento Prévio (Para ambas as tabelas)
