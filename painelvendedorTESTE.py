@@ -597,7 +597,7 @@ def mostrar_detalhes_titulos(cliente_nome, df_titulos):
         )
 
 def exibir_aba_credito():
-    st.markdown("### 💰 Painel de Crédito <small style='font-weight: normal; font-size: 14px; color: gray;'>(Clique na lupa 🔍 para ver os títulos)</small>", unsafe_allow_html=True)
+    st.markdown("### 💰 Painel de Crédito <small style='font-weight: normal; font-size: 14px; color: gray;'>(Aba em teste. Qualquer divergência, por favor reporte.)</small>", unsafe_allow_html=True)
     
     # --- LEGENDA RETRÁTIL (NO TOPO) ---
     with st.expander("ℹ️ Legenda: Entenda o significado de cada coluna (Clique para expandir)"):
@@ -720,9 +720,9 @@ def exibir_aba_credito():
     cols_existentes = [c for c in cols_order if c in df_base.columns]
     df_base = df_base[cols_existentes].copy()
 
-    # --- INSERÇÃO DA COLUNA ISCA ---
-    # Inserimos a coluna "DETALHES" na posição 0
-    df_base.insert(0, "DETALHES", "🔍 VER TÍTULOS")
+    # --- INSERÇÃO DA COLUNA ISCA (AJUSTADA V62) ---
+    # Inserimos a coluna "DETALHES" na posição 0 com a seta
+    df_base.insert(0, "DETALHES", "👈 VER TÍTULOS")
 
     # --- CONTROLE DE VISIBILIDADE DAS COLUNAS ---
     if tipo_usuario == "gerente comercial":
@@ -759,9 +759,9 @@ def exibir_aba_credito():
     else:
         df_prioridade = pd.DataFrame()
 
-    # Configuração das Colunas
+    # Configuração das Colunas (V62 - DETALHES AJUSTADO)
     config_colunas = {
-        "DETALHES": st.column_config.TextColumn("Ação", help="Clique na linha para ver os títulos.", width="small"),
+        "DETALHES": st.column_config.TextColumn("", help="Clique na caixa de seleção à esquerda para ver os títulos.", width="medium"),
         "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
         "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ."),
         "VENDEDOR": st.column_config.TextColumn("Vendedor", help="Vendedor."),
@@ -778,7 +778,7 @@ def exibir_aba_credito():
         "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data de vencimento do limite."),
         "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONIVEL VIA LC2", help="Valor livre no Limite DOX."),
         "DISPONIVEL BV": st.column_config.TextColumn("DISPONIVEL BV", help="Valor livre no Limite BV."),
-        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONIVEL VIA RA", help="Valor livre via RA."),
+        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONÍVEL VIA RA", help="Valor livre via RA."),
         "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor a vencer."),
         "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Dias para o próximo título vencer."),
         "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo."),
