@@ -10,7 +10,7 @@ import time
 # CONFIGURAÇÕES GERAIS E URLS
 # ==============================================================================
 st.set_page_config(
-    page_title="Painel do Vendedor Dox",
+    page_title="Painel Dox",
     page_icon="logodox.png",
     layout="wide"
 )
@@ -227,6 +227,20 @@ def carregar_dados_carteira():
     for tentativa in range(3):
         try:
             df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Carteira", ttl=0, dtype=str)
+            if not df.empty:
+                df.columns = df.columns.str.strip().str.upper()
+                return df
+            else:
+                time.sleep(2)
+        except Exception as e:
+            time.sleep(2)
+    return pd.DataFrame()
+
+@st.cache_data(ttl="5m", show_spinner=False)
+def carregar_dados_titulos():
+    for tentativa in range(3):
+        try:
+            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Titulos", ttl=0, dtype=str)
             if not df.empty:
                 df.columns = df.columns.str.strip().str.upper()
                 return df
@@ -542,8 +556,48 @@ def exibir_carteira_pedidos():
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
     else: st.error("Não foi possível carregar a planilha de pedidos.")
 
+# --- DIALOG PARA EXIBIR TÍTULOS ---
+@st.dialog("Detalhes Financeiros", width="large")
+def mostrar_detalhes_titulos(cliente_nome, df_titulos):
+    st.markdown(f"### 🏢 {cliente_nome}")
+    st.caption("Abaixo a lista de títulos em aberto (vencidos e a vencer) para este cliente.")
+    
+    if df_titulos.empty:
+        st.warning("Não há títulos pendentes registrados para este CNPJ.")
+    else:
+        # Tratamento visual da tabela de títulos
+        df_show = df_titulos.copy()
+        
+        # Formatando valor como moeda para exibição
+        if "VALOR" in df_show.columns:
+            df_show["VALOR"] = df_show["VALOR"].apply(formatar_moeda)
+        if "SALDO" in df_show.columns:
+            df_show["SALDO"] = df_show["SALDO"].apply(formatar_moeda)
+
+        # Selecionar colunas relevantes para o vendedor
+        cols_visual = [
+            "DATA_EMISSAO", "NOTA_FISCAL", "PARCELA", "VALOR", "SALDO",
+            "VENCIMENTO", "STATUS_RESUMO", "STATUS_DETALHADO", "TIPO_DE_FATURAMENTO"
+        ]
+        
+        # Filtra colunas que realmente existem
+        cols_finais = [c for c in cols_visual if c in df_show.columns]
+        
+        st.dataframe(
+            df_show[cols_finais], 
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "NOTA_FISCAL": st.column_config.TextColumn("NF"),
+                "DATA_EMISSAO": st.column_config.TextColumn("Emissão"),
+                "STATUS_RESUMO": st.column_config.TextColumn("Status"),
+                "STATUS_DETALHADO": st.column_config.TextColumn("Detalhe Vencimento"),
+                "TIPO_DE_FATURAMENTO": st.column_config.TextColumn("Tipo Fat.")
+            }
+        )
+
 def exibir_aba_credito():
-    st.markdown("### 💰 Painel de Crédito <small style='font-weight: normal; font-size: 14px; color: gray;'>(Aba em teste. Qualquer divergência, por favor reporte.)</small>", unsafe_allow_html=True)
+    st.markdown("### 💰 Painel de Crédito <small style='font-weight: normal; font-size: 14px; color: gray;'>(Clique na lupa 🔍 para ver os títulos)</small>", unsafe_allow_html=True)
     
     # --- LEGENDA RETRÁTIL (NO TOPO) ---
     with st.expander("ℹ️ Legenda: Entenda o significado de cada coluna (Clique para expandir)"):
@@ -616,12 +670,13 @@ def exibir_aba_credito():
     # 1. Carrega Dados (Com Retry Logic)
     df_credito = carregar_dados_credito()
     df_carteira = carregar_dados_carteira()
+    df_titulos_geral = carregar_dados_titulos() # Carrega base de títulos
     
     if df_credito.empty:
         st.info("Nenhuma informação de crédito disponível no momento (Aguardando sincronização do Robô).")
         return
 
-    # 2. Definição das Colunas (Ordem V56)
+    # 2. Definição das Colunas
     cols_order = [
         "CNPJ", "CLIENTE", "VENDEDOR", "GERENTE", "RISCO_DE_BLOQUEIO", "ACAO_SUGERIDA", "MOTIVO_PROVAVEL_DO_BLOQUEIO",
         "OPCAO_DE_FATURAMENTO", "RECEBIVEIS", "DIAS_EM_ATRASO_RECEBIVEIS", "SALDO_VENCIDO", "VENCIMENTO LC",
@@ -635,26 +690,22 @@ def exibir_aba_credito():
         "EM ABERTO BV", "DISPONIVEL BV"
     ]
 
-    # 3. Filtragem Global (Vendedor Logado) - V61: Ajuste para Gerente Comercial
+    # 3. Filtragem Global (Vendedor Logado)
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     nome_usuario = st.session_state['usuario_filtro']
     nome_usuario_limpo = nome_usuario.strip().lower()
 
     if tipo_usuario in ["admin", "master", "gerente"]:
-        # "gerente" aqui é o genérico que vê tudo.
         df_base = df_credito.copy()
         
     elif tipo_usuario == "gerente comercial":
-        # V61: Filtra pela coluna GERENTE
         if "GERENTE" in df_credito.columns:
-            # Limpeza prévia para garantir match
             df_credito["GERENTE_CLEAN"] = df_credito["GERENTE"].astype(str).str.strip().str.lower()
             df_base = df_credito[df_credito["GERENTE_CLEAN"].str.contains(nome_usuario_limpo, na=False)].copy()
         else:
             df_base = pd.DataFrame()
             
     else:
-        # Vendedor Padrão: Filtra pela coluna VENDEDOR
         if "VENDEDOR" in df_credito.columns:
             df_credito["VENDEDOR_CLEAN"] = df_credito["VENDEDOR"].astype(str).str.strip().str.lower()
             df_base = df_credito[df_credito["VENDEDOR_CLEAN"].str.contains(nome_usuario_limpo, na=False)].copy()
@@ -665,35 +716,34 @@ def exibir_aba_credito():
         st.info(f"Nenhum cliente encontrado para o perfil: {nome_usuario}")
         return
 
-    # 4. Tratamento Prévio (Para ambas as tabelas)
+    # 4. Tratamento Prévio
     cols_existentes = [c for c in cols_order if c in df_base.columns]
     df_base = df_base[cols_existentes].copy()
 
-    # --- CONTROLE DE VISIBILIDADE DAS COLUNAS (V61) ---
+    # --- INSERÇÃO DA COLUNA ISCA ---
+    # Inserimos a coluna "DETALHES" na posição 0
+    df_base.insert(0, "DETALHES", "🔍 VER TÍTULOS")
+
+    # --- CONTROLE DE VISIBILIDADE DAS COLUNAS ---
     if tipo_usuario == "gerente comercial":
-        # Vê VENDEDOR, mas não vê GERENTE (pois é ele)
         if "GERENTE" in df_base.columns: df_base = df_base.drop(columns=["GERENTE"])
-        
     elif tipo_usuario not in ["admin", "master", "gerente"]: 
-        # Vendedor comum: Não vê nem VENDEDOR nem GERENTE
         if "VENDEDOR" in df_base.columns: df_base = df_base.drop(columns=["VENDEDOR"])
         if "GERENTE" in df_base.columns: df_base = df_base.drop(columns=["GERENTE"])
 
-    # Tratamento de Dias (sem .0)
+    # Tratamento de Dias e Moeda
     cols_dias = ["DIAS_PARA_VENCER_LC", "DIAS_PARA_VENCER_TITULO", "DIAS_EM_ATRASO_RECEBIVEIS"]
     for col in cols_dias:
         if col in df_base.columns:
             df_base[col] = pd.to_numeric(df_base[col], errors='coerce').apply(lambda x: f"{int(x)}" if pd.notnull(x) else "")
 
-    # Formatação Moeda
     for col in cols_financeiras:
         if col in df_base.columns:
             df_base[col] = df_base[col].apply(formatar_moeda)
 
-    # Limpeza Visual
     df_base = df_base.astype(str).replace(['None', 'nan', 'NaT', '<NA>', 'nan.0'], '')
 
-    # 5. Filtro de Busca (Texto) - Aplica sobre a base já tratada
+    # 5. Filtro de Busca
     texto_busca_credito = st.text_input("🔍 Filtrar Clientes (CNPJ, Nome...):")
     if texto_busca_credito:
         mask = df_base.astype(str).apply(lambda x: x.str.contains(texto_busca_credito, case=False, na=False)).any(axis=1)
@@ -702,7 +752,6 @@ def exibir_aba_credito():
     # 6. Separação: Com Pedido vs Sem Pedido
     lista_clientes_com_pedido = []
     if not df_carteira.empty and "CLIENTE" in df_carteira.columns:
-        # Pega lista única de nomes de clientes que têm pedido
         lista_clientes_com_pedido = df_carteira["CLIENTE"].unique().tolist()
 
     if "CLIENTE" in df_base.columns:
@@ -710,8 +759,9 @@ def exibir_aba_credito():
     else:
         df_prioridade = pd.DataFrame()
 
-    # Configuração das Colunas (Labels/Tooltips)
+    # Configuração das Colunas
     config_colunas = {
+        "DETALHES": st.column_config.TextColumn("Ação", help="Clique na linha para ver os títulos.", width="small"),
         "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
         "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ."),
         "VENDEDOR": st.column_config.TextColumn("Vendedor", help="Vendedor."),
@@ -726,9 +776,9 @@ def exibir_aba_credito():
         "VENCIMENTO LC": st.column_config.TextColumn("VENCIMENTO LC", help="Status do limite (OK / Vencido)."),
         "DIAS_PARA_VENCER_LC": st.column_config.TextColumn("DIAS_PARA_VENCER_LC", help="Dias para vencer o limite."),
         "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data de vencimento do limite."),
-        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONÍVEL VIA LC2", help="Valor livre no Limite DOX."),
-        "DISPONIVEL BV": st.column_config.TextColumn("DISPONÍVEL BV", help="Valor livre no Limite BV."),
-        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONÍVEL VIA RA", help="Valor livre via RA."),
+        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONIVEL VIA LC2", help="Valor livre no Limite DOX."),
+        "DISPONIVEL BV": st.column_config.TextColumn("DISPONIVEL BV", help="Valor livre no Limite BV."),
+        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONIVEL VIA RA", help="Valor livre via RA."),
         "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor a vencer."),
         "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Dias para o próximo título vencer."),
         "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo."),
@@ -740,14 +790,40 @@ def exibir_aba_credito():
         "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Total em aberto BV.")
     }
 
-    # 7. Renderização das Tabelas
+    # 7. Renderização das Tabelas com SELEÇÃO
+    
+    # Função auxiliar para exibir e processar a seleção
+    def exibir_tabela_com_selecao(df_input, titulo):
+        st.markdown(titulo)
+        # Evento de seleção de linha
+        event = st.dataframe(
+            df_input, 
+            hide_index=True, 
+            use_container_width=True, 
+            column_config=config_colunas,
+            on_select="rerun",
+            selection_mode="single-row"
+        )
+        
+        # Lógica: Se clicou
+        if event.selection.rows:
+            idx = event.selection.rows[0]
+            # Pega o CNPJ da linha selecionada
+            cnpj_selecionado = df_input.iloc[idx]["CNPJ"]
+            cliente_selecionado = df_input.iloc[idx]["CLIENTE"]
+            
+            # Filtra os títulos desse CNPJ
+            if not df_titulos_geral.empty:
+                df_titulos_filtrado = df_titulos_geral[df_titulos_geral["CNPJ"] == cnpj_selecionado]
+                mostrar_detalhes_titulos(cliente_selecionado, df_titulos_filtrado)
+            else:
+                mostrar_detalhes_titulos(cliente_selecionado, pd.DataFrame())
+
     if not df_prioridade.empty:
-        st.markdown("#### Clientes com Pedidos Abertos", help="Mostra apenas os clientes da sua carteira que possuem pedidos pendentes no sistema.")
-        st.dataframe(df_prioridade, hide_index=True, use_container_width=True, column_config=config_colunas)
+        exibir_tabela_com_selecao(df_prioridade, "#### Clientes com Pedidos Abertos")
         st.divider()
     
-    st.markdown("#### Todos os Clientes")
-    st.dataframe(df_base, hide_index=True, use_container_width=True, column_config=config_colunas)
+    exibir_tabela_com_selecao(df_base, "#### Todos os Clientes")
 
 
 def exibir_aba_fotos(is_admin=False):
@@ -844,7 +920,7 @@ if not st.session_state['logado']:
                 else: st.warning("Preencha tudo.")
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
-        st.title("🔒 Login - Painel do Vendedor - Dox Brasil")
+        st.title("🔒 Login - Painel Dox")
         c1, c2, c3 = st.columns([1, 1, 2])
         with c1:
             u = st.text_input("Login").strip()
