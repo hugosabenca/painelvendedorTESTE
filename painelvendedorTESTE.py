@@ -642,11 +642,11 @@ def exibir_aba_credito():
         
         **DATA_VENC_LC**: Data em que o limite de crédito do cliente vence.
         
-        **DISPONÍVEL VIA LC2**: Valor disponível para faturar usando o limite de crédito DOX, já considerando títulos em aberto.
+        **DISPONIVEL VIA LC2**: Valor disponível para faturar usando o limite de crédito DOX, já considerando títulos em aberto.
         
-        **DISPONÍVEL BV**: Valor disponível para faturar usando a modalidade BV (Banco/Vendor).
+        **DISPONIVEL BV**: Valor disponível para faturar usando a modalidade BV (Banco/Vendor).
         
-        **DISPONÍVEL VIA RA**: Valor disponível para faturar via RA (recebimento antecipado), desde que não existam atrasos.
+        **DISPONIVEL VIA RA**: Valor disponível para faturar via RA (recebimento antecipado), desde que não existam atrasos.
         
         **SALDO_A_VENCER**: Valor total de títulos que ainda vão vencer no futuro (não estão atrasados).
         
@@ -827,9 +827,10 @@ def exibir_aba_credito():
 
 
 def exibir_aba_fotos(is_admin=False):
-    st.info("ℹ️ Somente materiais da filial de Pinheiral.") # AVISO NOVO
+    st.info("ℹ️ Somente materiais da filial de Pinheiral.") 
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
-    st.markdown("Digite o número do Lote/Bobina abaixo para solicitar fotos de materiais defeituosos.")
+    # MUDANÇA: Texto atualizado
+    st.markdown("Digite o número do Lote/Bobina abaixo para solicitar fotos de materiais no armazém 20/24.")
     with st.form("form_foto"):
         col_f1, col_f2 = st.columns([1, 2])
         with col_f1: lote_input = st.text_input("Lote / Bobina:")
@@ -848,6 +849,8 @@ def exibir_aba_fotos(is_admin=False):
         else: st.info("Nenhum pedido de foto registrado.")
 
 def exibir_aba_certificados(is_admin=False):
+    # MUDANÇA: Aviso adicionado
+    st.info("ℹ️ Somente bobinas nacionas. Materiais de SFS solicitar diretamente com o Faturamento/Logística da unidade.") 
     st.subheader("📑 Solicitação de Certificados de Qualidade")
     st.markdown("Digite o número do Lote/Bobina para receber o certificado de qualidade.")
     with st.form("form_certificado"):
@@ -959,7 +962,6 @@ else:
         if st.button("🔄 Atualizar Dados"): st.cache_data.clear(); st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        # ABA FOTOS ADICIONADA
         a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
@@ -972,7 +974,6 @@ else:
         with a9: exibir_aba_producao()
         
     elif st.session_state['usuario_tipo'].lower() == "master":
-        # ABA FOTOS ADICIONADA
         a1, a2, a3, a4, a5, a6, a7 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
