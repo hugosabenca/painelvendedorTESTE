@@ -761,7 +761,7 @@ def exibir_aba_credito():
 
     # Configuração das Colunas (V62 - DETALHES AJUSTADO)
     config_colunas = {
-        "DETALHES": st.column_config.TextColumn("", help="Clique na caixa de seleção à esquerda para ver os títulos.", width="medium"),
+        "DETALHES": st.column_config.TextColumn("", help="Clique na caixa de seleção à esquerda para ver os títulos.", width="130"),
         "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
         "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ."),
         "VENDEDOR": st.column_config.TextColumn("Vendedor", help="Vendedor."),
