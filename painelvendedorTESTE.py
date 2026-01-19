@@ -665,6 +665,17 @@ def exibir_aba_credito():
         **EM ABERTO**: Soma de todos os títulos em aberto do cliente, independentemente do vencimento.
         
         **EM ABERTO BV**: Valor total de títulos em aberto vinculados à modalidade BV.
+        
+        **LC_SUPPLIER**: Limite total de crédito aprovado pelo banco para o cliente operar via Supplier.
+        
+        **SUPPLIER_DISP**: Valor do limite Supplier que ainda está disponível para uso em novas vendas.
+        
+        **SITUACAO_LC**: Indica se o convênio de crédito do cliente com o banco (Supplier/BV) está liberado, bloqueado ou em análise no momento.
+        * **ATIVO / LIBERADO**: Cliente pode faturar normalmente via Supplier/BV.
+        * **BLOQUEADO**: Faturamento via Supplier/BV não é permitido até regularização.
+        * **SUSPENSO**: Convênio temporariamente suspenso pelo banco, sem liberação para faturar.
+        * **EM ANÁLISE**: Crédito em avaliação pelo banco, geralmente sem liberação até conclusão.
+        * **CANCELADO**: Convênio de crédito encerrado, não sendo mais possível operar via Supplier/BV.
         """)
 
     # 1. Carrega Dados (Com Retry Logic)
@@ -682,12 +693,12 @@ def exibir_aba_credito():
         "OPCAO_DE_FATURAMENTO", "RECEBIVEIS", "DIAS_EM_ATRASO_RECEBIVEIS", "SALDO_VENCIDO", "VENCIMENTO LC",
         "DIAS_PARA_VENCER_LC", "DATA_VENC_LC", "DISPONIVEL VIA LC2", "DISPONIVEL BV", "DISPONIVEL VIA RA",
         "SALDO_A_VENCER", "DIAS_PARA_VENCER_TITULO", "DATA_VENCIMENTO_MAIS_ANTIGA", "LC DOX", "LC BV", "LC TOTAL",
-        "RA", "EM_ABERTO", "EM ABERTO BV"
+        "RA", "EM_ABERTO", "EM ABERTO BV", "LC SUPPLIER", "SUPPLIER DISP", "SITUACAO LC"
     ]
     cols_financeiras = [
         "SALDO_VENCIDO", "SALDO_A_VENCER", "LC TOTAL", "LC DOX", "RA", 
         "EM_ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
-        "EM ABERTO BV", "DISPONIVEL BV"
+        "EM ABERTO BV", "DISPONIVEL BV", "LC SUPPLIER", "SUPPLIER DISP"
     ]
 
     # 3. Filtragem Global (Vendedor Logado)
@@ -759,7 +770,7 @@ def exibir_aba_credito():
     else:
         df_prioridade = pd.DataFrame()
 
-    # Configuração das Colunas (V63 - WIDTH=130)
+    # Configuração das Colunas (V67 - SUPPLIER ADICIONADO)
     config_colunas = {
         "DETALHES": st.column_config.TextColumn("", help="Clique na caixa de seleção à esquerda para ver os títulos.", width=130),
         "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
@@ -787,7 +798,10 @@ def exibir_aba_credito():
         "LC TOTAL": st.column_config.TextColumn("LC_TOTAL", help="Limite total."),
         "RA": st.column_config.TextColumn("RA", help="Valor em RA."),
         "EM_ABERTO": st.column_config.TextColumn("EM ABERTO", help="Total em aberto."),
-        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Total em aberto BV.")
+        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Total em aberto BV."),
+        "LC SUPPLIER": st.column_config.TextColumn("LC SUPPLIER", help="Limite total de crédito aprovado pelo banco para o cliente operar via Supplier."),
+        "SUPPLIER DISP": st.column_config.TextColumn("SUPPLIER DISP", help="Valor do limite Supplier que ainda está disponível para uso em novas vendas."),
+        "SITUACAO LC": st.column_config.TextColumn("SITUACAO LC", help="Indica se o convênio de crédito do cliente com o banco (Supplier/BV) está liberado, bloqueado ou em análise.")
     }
 
     # 7. Renderização das Tabelas com SELEÇÃO
@@ -829,16 +843,23 @@ def exibir_aba_credito():
 def exibir_aba_fotos(is_admin=False):
     st.info("ℹ️ Somente materiais da filial de Pinheiral.") 
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
-    # MUDANÇA: Texto atualizado
     st.markdown("Digite o número do Lote/Bobina abaixo para solicitar fotos de materiais no armazém 20/24.")
     with st.form("form_foto"):
         col_f1, col_f2 = st.columns([1, 2])
         with col_f1: lote_input = st.text_input("Lote / Bobina:")
         with col_f2: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''))
         if st.form_submit_button("Solicitar Fotos", type="primary"):
-            if not lote_input: st.warning("Digite o lote.")
-            elif not email_input: st.warning("Preencha o e-mail.")
-            elif salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_input): st.success(f"Solicitação do lote **{lote_input}** enviada!")
+            if not lote_input: 
+                st.warning("Digite o lote.")
+            elif not email_input: 
+                st.warning("Preencha o e-mail.")
+            else:
+                # --- LIMPEZA DE ESPAÇOS AUTOMÁTICA ---
+                lote_limpo = lote_input.strip()
+                
+                if salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_limpo): 
+                    st.success(f"Solicitação do lote **{lote_limpo}** enviada!")
+
     if is_admin:
         st.divider()
         st.markdown("### 🛠️ Gestão de Pedidos de Fotos (Visão Admin)")
@@ -849,7 +870,6 @@ def exibir_aba_fotos(is_admin=False):
         else: st.info("Nenhum pedido de foto registrado.")
 
 def exibir_aba_certificados(is_admin=False):
-    # MUDANÇA: Aviso adicionado
     st.info("ℹ️ Somente bobinas nacionas. Materiais de SFS solicitar diretamente com o Faturamento/Logística da unidade.") 
     st.subheader("📑 Solicitação de Certificados de Qualidade")
     st.markdown("Digite o número do Lote/Bobina para receber o certificado de qualidade.")
