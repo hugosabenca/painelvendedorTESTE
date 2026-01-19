@@ -900,13 +900,19 @@ def exibir_aba_notas(is_admin=False):
     st.markdown("Digite o número da Nota Fiscal para receber o PDF por e-mail. **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.")
     with st.form("form_notas"):
         col_n1, col_n2, col_n3 = st.columns([1, 1, 1])
-        with col_n1: filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL"])
+        with col_n1: 
+            # MUDANÇA: Adicionado SAO PAULO
+            filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
         with col_n2: nf_input = st.text_input("Número da NF (Ex: 71591):")
         with col_n3: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_nf")
         if st.form_submit_button("Solicitar NF", type="primary"):
             if not nf_input: st.warning("Digite o número da nota.")
             elif not email_input: st.warning("Preencha o e-mail.")
-            elif salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_input, filial_input): st.success(f"Solicitação da NF **{nf_input}** ({filial_input}) enviada!")
+            else:
+                # MUDANÇA: Lógica de limpeza (strip e remove zeros a esquerda)
+                nf_limpa = nf_input.strip().lstrip('0')
+                if salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_limpa, filial_input): 
+                    st.success(f"Solicitação da NF **{nf_limpa}** ({filial_input}) enviada!")
     st.divider()
     if is_admin: st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
     else: st.markdown("### 📜 Meus Pedidos de Notas")
