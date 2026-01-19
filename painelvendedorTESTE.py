@@ -17,7 +17,7 @@ st.set_page_config(
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
-# --- USANDO URLS COMPLETAS PARA EVITAR ERRO DE LEITURA ---
+# --- USANDO URLS COMPLETAS ---
 URL_SISTEMA = "https://docs.google.com/spreadsheets/d/1jODOp_SJUKWp1UaSmW_xJgkkyqDUexa56_P5QScAv3s/edit"
 URL_PINHEIRAL = "https://docs.google.com/spreadsheets/d/1DxTnEEh9VgbFyjqxYafdJ0-puSAIHYhZ6lo5wZTKDeg/edit"
 URL_BICAS = "https://docs.google.com/spreadsheets/d/1zKZK0fpYl-UtHcYmFkZJtOO17fTqBWaJ39V2UOukack/edit"
@@ -31,29 +31,64 @@ try:
 except Exception:
     pass 
 
+# Conexão Global
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==============================================================================
-# FUNÇÕES DE LEITURA BLINDADAS (COM RETRY LOGIC)
+# FUNÇÃO MESTRA DE LEITURA (BLINDAGEM CONTRA ERROS DE CONEXÃO)
 # ==============================================================================
 
+def ler_com_retry(url, aba, tentativas=5, espera=1):
+    """
+    Tenta ler uma aba do Google Sheets múltiplas vezes antes de desistir.
+    Isso evita que o painel mostre erro só porque o Robô estava escrevendo naquele segundo.
+    """
+    for i in range(tentativas):
+        try:
+            # ttl=0 garante que estamos buscando dados frescos na tentativa, 
+            # mas o st.cache_data por fora controla a frequência.
+            df = conn.read(spreadsheet=url, worksheet=aba, ttl=0)
+            
+            # Se a leitura retornou algo válido, encerramos o loop e devolvemos
+            if not df.empty:
+                return df
+            
+            # Se veio vazio mas não deu erro de conexão, pode ser que a aba esteja vazia mesmo.
+            # Mas vamos esperar um pouco e tentar de novo por garantia.
+            time.sleep(espera)
+            
+        except Exception as e:
+            # Se deu erro de conexão (Quota, Timeout, etc), espera e tenta de novo
+            time.sleep(espera)
+            
+    # Se falhou todas as vezes, retorna DataFrame vazio
+    return pd.DataFrame()
+
+# ==============================================================================
+# CARREGAMENTO DE DADOS (COM CACHE + RETRY)
+# ==============================================================================
+
+# 1. LOGIN (CACHE LONGO DE 30 MINUTOS PARA EVITAR GARGALO)
+@st.cache_data(ttl="30m", show_spinner=False)
+def carregar_usuarios():
+    # Usa a função blindada. Se falhar na primeira, tenta mais 4 vezes.
+    df_users = ler_com_retry(URL_SISTEMA, "Usuarios")
+    if not df_users.empty:
+        return df_users.astype(str)
+    return pd.DataFrame()
+
+# 2. DADOS DO SISTEMA (CACHE MÉDIO)
 @st.cache_data(ttl="10m", show_spinner=False)
 def ler_dados_nuvem_generico(aba, url_planilha):
-    for tentativa in range(3):
-        try:
-            df = conn.read(spreadsheet=url_planilha, worksheet=aba, ttl=0)
-            if not df.empty:
-                df.columns = df.columns.str.strip().str.upper()
-                if 'TONS' in df.columns:
-                    df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
-                    df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
-                if 'DATA_EMISSAO' in df.columns:
-                    df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
-                return df
-            else:
-                time.sleep(2)
-        except Exception as e:
-            time.sleep(2)
+    df = ler_com_retry(url_planilha, aba)
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.upper()
+        if 'TONS' in df.columns:
+            df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
+            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
+        if 'DATA_EMISSAO' in df.columns:
+            df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
+        return df
     return pd.DataFrame()
 
 def carregar_dados_faturamento_direto():
@@ -64,194 +99,163 @@ def carregar_dados_faturamento_transf():
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_faturamento():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", ttl=0)
-        if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
-        df.columns = df.columns.str.strip().str.upper()
-        if 'META' in df.columns:
-             df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        return df
-    except:
-        return pd.DataFrame(columns=['FILIAL', 'META'])
+    df = ler_com_retry(URL_SISTEMA, "Metas_Faturamento")
+    if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
+    
+    df.columns = df.columns.str.strip().str.upper()
+    if 'META' in df.columns:
+            df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+    return df
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_dados_producao_nuvem():
-    for tentativa in range(3):
-        try:
-            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Producao", ttl=0)
-            if not df.empty:
-                df.columns = df.columns.str.strip().str.upper()
-                if 'VOLUME' in df.columns:
-                    df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-                if 'DATA' in df.columns:
-                    df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
-                return df
-            else:
-                time.sleep(2)
-        except Exception as e:
-            time.sleep(2)
+    df = ler_com_retry(URL_SISTEMA, "Dados_Producao")
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.upper()
+        if 'VOLUME' in df.columns:
+            df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        if 'DATA' in df.columns:
+            df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
+        return df
     return pd.DataFrame()
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_producao():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", ttl=0)
-        if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
-        df.columns = df.columns.str.strip().str.upper()
-        if 'META' in df.columns:
-             df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        return df
-    except:
-        return pd.DataFrame(columns=['MAQUINA', 'META'])
+    df = ler_com_retry(URL_SISTEMA, "Metas_Producao")
+    if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
+    
+    df.columns = df.columns.str.strip().str.upper()
+    if 'META' in df.columns:
+            df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+    return df
 
-def carregar_usuarios():
-    try:
-        df_users = conn.read(spreadsheet=URL_SISTEMA, worksheet="Usuarios", ttl=0)
-        return df_users.astype(str)
-    except Exception as e:
-        print(f"Erro conexao usuarios: {e}")
-        return pd.DataFrame()
+# 3. SOLICITAÇÕES E LOGS (CACHE CURTO PARA VER ATUALIZAÇÕES RÁPIDO)
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes():
-    try: 
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", ttl=0)
-        return df
-    except Exception as e:
-        return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
+    df = ler_com_retry(URL_SISTEMA, "Solicitacoes")
+    if df.empty: return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
+    return df
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_fotos():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
-        if not df.empty:
-            cols_map = {c: c.strip() for c in df.columns}
-            df = df.rename(columns=cols_map)
-            if "Lote" in df.columns: 
-                df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
+    df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Fotos")
+    if not df.empty:
+        cols_map = {c: c.strip() for c in df.columns}
+        df = df.rename(columns=cols_map)
+        if "Lote" in df.columns: 
+            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
-    except Exception as e: 
-        return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_certificados():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
-        if not df.empty:
-            cols_map = {c: c.strip() for c in df.columns}
-            df = df.rename(columns=cols_map)
-            if "Lote" in df.columns: 
-                df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
+    df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Certificados")
+    if not df.empty:
+        cols_map = {c: c.strip() for c in df.columns}
+        df = df.rename(columns=cols_map)
+        if "Lote" in df.columns: 
+            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
-    except Exception as e: 
-        return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_notas():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
-        if not df.empty:
-            cols_map = {c: c.strip() for c in df.columns}
-            df = df.rename(columns=cols_map)
-            if "NF" in df.columns: 
-                df["NF"] = df["NF"].astype(str).str.replace("'", "") 
+    df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Notas")
+    if not df.empty:
+        cols_map = {c: c.strip() for c in df.columns}
+        df = df.rename(columns=cols_map)
+        if "NF" in df.columns: 
+            df["NF"] = df["NF"].astype(str).str.replace("'", "") 
         return df
-    except Exception as e: 
-        return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
+    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_logs_acessos():
-    try:
-        df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Acessos", ttl=0)
-        if not df.empty:
-             df.columns = df.columns.str.strip()
-             if "Data" in df.columns:
-                 try:
-                     df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
-                     df = df.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
-                 except: pass
+    df = ler_com_retry(URL_SISTEMA, "Acessos")
+    if not df.empty:
+        df.columns = df.columns.str.strip()
+        if "Data" in df.columns:
+            try:
+                df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
+                df = df.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
+            except: pass
         return df
-    except Exception as e: 
-        return pd.DataFrame(columns=["Data", "Login", "Nome"])
+    return pd.DataFrame(columns=["Data", "Login", "Nome"])
+
+# 4. CARTEIRA E PEDIDOS (PROCESSAMENTO MAIS PESADO)
 
 @st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
     dados_consolidados = []
+    
+    # Busca Pinheiral
     for aba in ABAS_PINHEIRAL:
-        try:
-            df = conn.read(spreadsheet=URL_PINHEIRAL, worksheet=aba, ttl=0, dtype=str)
-            if not df.empty:
-                df['Máquina/Processo'] = aba
-                df['Filial_Origem'] = "PINHEIRAL"
-                cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
-                cols_existentes = [c for c in cols_necessarias if c in df.columns]
-                if "Vendedor Correto" in cols_existentes:
-                    df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
-                    if "Número do Pedido" in df_limpo.columns:
-                        df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
-                    dados_consolidados.append(df_limpo)
-        except: continue
+        df = ler_com_retry(URL_PINHEIRAL, aba, tentativas=2) # Menos tentativas aqui para não demorar demais se falhar
+        if not df.empty:
+            df = df.astype(str) # Conversão de segurança
+            df['Máquina/Processo'] = aba
+            df['Filial_Origem'] = "PINHEIRAL"
+            
+            cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
+            cols_existentes = [c for c in cols_necessarias if c in df.columns]
+            
+            if "Vendedor Correto" in cols_existentes:
+                df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
+                if "Número do Pedido" in df_limpo.columns:
+                    df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
+                dados_consolidados.append(df_limpo)
+
+    # Busca Bicas
     for aba in ABAS_BICAS:
-        try:
-            df = conn.read(spreadsheet=URL_BICAS, worksheet=aba, ttl=0, dtype=str)
-            if not df.empty:
-                df['Máquina/Processo'] = aba
-                df['Filial_Origem'] = "SJ BICAS"
-                cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
-                cols_existentes = [c for c in cols_necessarias if c in df.columns]
-                if "Vendedor Correto" in cols_existentes:
-                    df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
-                    if "Número do Pedido" in df_limpo.columns:
-                        df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
-                    dados_consolidados.append(df_limpo)
-        except: continue
-    if dados_consolidados: return pd.concat(dados_consolidados, ignore_index=True)
+        df = ler_com_retry(URL_BICAS, aba, tentativas=2)
+        if not df.empty:
+            df = df.astype(str)
+            df['Máquina/Processo'] = aba
+            df['Filial_Origem'] = "SJ BICAS"
+            
+            cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
+            cols_existentes = [c for c in cols_necessarias if c in df.columns]
+            
+            if "Vendedor Correto" in cols_existentes:
+                df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
+                if "Número do Pedido" in df_limpo.columns:
+                    df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
+                dados_consolidados.append(df_limpo)
+
+    if dados_consolidados: 
+        return pd.concat(dados_consolidados, ignore_index=True)
     return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_credito():
-    for tentativa in range(3):
-        try:
-            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Credito", ttl=0, dtype=str)
-            if not df.empty:
-                df.columns = df.columns.str.strip().str.upper()
-                return df
-            else:
-                time.sleep(2)
-        except Exception as e:
-            time.sleep(2)
+    df = ler_com_retry(URL_SISTEMA, "Dados_Credito")
+    if not df.empty:
+        df = df.astype(str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
     return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_carteira():
-    for tentativa in range(3):
-        try:
-            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Carteira", ttl=0, dtype=str)
-            if not df.empty:
-                df.columns = df.columns.str.strip().str.upper()
-                return df
-            else:
-                time.sleep(2)
-        except Exception as e:
-            time.sleep(2)
+    df = ler_com_retry(URL_SISTEMA, "Dados_Carteira")
+    if not df.empty:
+        df = df.astype(str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
     return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_titulos():
-    for tentativa in range(3):
-        try:
-            df = conn.read(spreadsheet=URL_SISTEMA, worksheet="Dados_Titulos", ttl=0, dtype=str)
-            if not df.empty:
-                df.columns = df.columns.str.strip().str.upper()
-                return df
-            else:
-                time.sleep(2)
-        except Exception as e:
-            time.sleep(2)
+    df = ler_com_retry(URL_SISTEMA, "Dados_Titulos")
+    if not df.empty:
+        df = df.astype(str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
     return pd.DataFrame()
 
 # ==============================================================================
-# FUNÇÕES DE ESCRITA
+# FUNÇÕES DE ESCRITA (ESCRITA NÃO USA CACHE, MAS PRECISA DE TRY/EXCEPT)
 # ==============================================================================
 
 def salvar_metas_faturamento(dicionario_metas):
@@ -270,9 +274,13 @@ def salvar_metas_producao(dicionario_metas):
 
 def registrar_acesso(login, nome):
     try:
+        # Tenta ler sem retry exagerado, pois é log
         try: df_logs = conn.read(spreadsheet=URL_SISTEMA, worksheet="Acessos", ttl=0)
         except: df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
-        if df_logs.empty and "Data" not in df_logs.columns: df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
+        
+        if df_logs.empty and "Data" not in df_logs.columns: 
+            df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
+            
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
         novo_log = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome}])
         df_final = pd.concat([df_logs, novo_log], ignore_index=True)
@@ -281,11 +289,13 @@ def registrar_acesso(login, nome):
 
 def salvar_nova_solicitacao(nome, email, login, senha):
     try:
-        df_existente = carregar_solicitacoes()
+        df_existente = carregar_solicitacoes() # Usa a versão cacheada/blindada para ler
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Nome": nome, "Email": email, "Login": login, "Senha": senha, "Data": agora_br, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", data=df_final)
+        # Limpa cache para refletir a mudança
+        carregar_solicitacoes.clear()
         return True
     except Exception as e: return False
 
@@ -293,12 +303,18 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
     try:
         try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
         except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-        if df_existente.empty and "Data" not in df_existente.columns: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+        
+        if df_existente.empty and "Data" not in df_existente.columns: 
+            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+            
         lote_formatado = f"'{lote}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", data=df_final)
+        
+        # Limpa o cache para o usuário ver o pedido na lista imediatamente
+        carregar_solicitacoes_fotos.clear()
         return True
     except Exception as e: return False
 
@@ -306,12 +322,17 @@ def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
     try:
         try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
         except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-        if df_existente.empty and "Data" not in df_existente.columns: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+        
+        if df_existente.empty and "Data" not in df_existente.columns: 
+            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+            
         lote_formatado = f"'{lote}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", data=df_final)
+        
+        carregar_solicitacoes_certificados.clear()
         return True
     except Exception as e: return False
 
@@ -319,12 +340,17 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     try:
         try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
         except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
-        if df_existente.empty and "Data" not in df_existente.columns: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
+        
+        if df_existente.empty and "Data" not in df_existente.columns: 
+            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
+            
         nf_str = f"'{nf_numero}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
         nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "NF": nf_str, "Filial": filial, "Status": "Pendente"}])
         df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
         conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", data=df_final)
+        
+        carregar_solicitacoes_notas.clear()
         return True
     except Exception as e: return False
 
@@ -383,12 +409,18 @@ def exibir_aba_faturamento():
     st.subheader("📊 Painel de Faturamento")
     if st.button("🔄 Atualizar Gráfico"):
         with st.spinner("Buscando dados sincronizados..."):
+            # Limpa cache específico destas funções para forçar atualização
+            carregar_dados_faturamento_direto.clear()
+            carregar_dados_faturamento_transf.clear()
+            
             st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
             st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
             st.session_state['metas_faturamento'] = carregar_metas_faturamento()
+            
     if 'metas_faturamento' not in st.session_state: st.session_state['metas_faturamento'] = carregar_metas_faturamento()
     if 'dados_faturamento' not in st.session_state: st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
     if 'dados_faturamento_transf' not in st.session_state: st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
+    
     with st.expander("⚙️ Definir Meta (tons)"):
         with st.form("form_metas_fat"):
             st.caption("Defina a meta diária de faturamento para PINHEIRAL (Direto).")
@@ -402,6 +434,7 @@ def exibir_aba_faturamento():
             if st.form_submit_button("💾 Salvar Metas"):
                 if salvar_metas_faturamento(novas_metas):
                     st.success("Meta atualizada!")
+                    carregar_metas_faturamento.clear() # Limpa cache
                     st.session_state['metas_faturamento'] = carregar_metas_faturamento()
                     st.rerun()
     st.divider()
@@ -429,8 +462,10 @@ def exibir_aba_producao():
     st.subheader("🏭 Painel de Produção (Pinheiral)")
     if st.button("🔄 Atualizar Produção"):
         with st.spinner("Carregando indicadores..."):
+            carregar_dados_producao_nuvem.clear() # Limpa cache
             st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
             st.session_state['metas_producao'] = carregar_metas_producao()
+            
     if 'metas_producao' not in st.session_state: st.session_state['metas_producao'] = carregar_metas_producao()
     with st.expander("⚙️ Definir Metas Diárias (Tons)"):
         if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
@@ -448,7 +483,11 @@ def exibir_aba_producao():
                     if not filtro.empty: valor_atual = float(filtro.iloc[0]['META'])
                 with cols[i % 3]: novas_metas[mq] = st.number_input(f"{mq}", value=valor_atual, step=1.0, min_value=0.0)
             if st.form_submit_button("💾 Salvar Metas"):
-                if salvar_metas_producao(novas_metas): st.success("Metas atualizadas!"); st.session_state['metas_producao'] = carregar_metas_producao(); st.rerun()
+                if salvar_metas_producao(novas_metas): 
+                    st.success("Metas atualizadas!")
+                    carregar_metas_producao.clear()
+                    st.session_state['metas_producao'] = carregar_metas_producao()
+                    st.rerun()
     st.divider()
     if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
         df = st.session_state['dados_producao']
@@ -554,7 +593,7 @@ def exibir_carteira_pedidos():
             else: df_exibicao = df_final
             st.dataframe(df_exibicao, hide_index=True, use_container_width=True, column_config={"Prazo": st.column_config.TextColumn("Previsão"), "Filial_Origem": st.column_config.TextColumn("Filial")})
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
-    else: st.error("Não foi possível carregar a planilha de pedidos.")
+    else: st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
 
 # --- DIALOG PARA EXIBIR TÍTULOS ---
 @st.dialog("Detalhes Financeiros", width="large")
@@ -678,7 +717,7 @@ def exibir_aba_credito():
         * **CANCELADO**: Convênio de crédito encerrado, não sendo mais possível operar via Supplier/BV.
         """)
 
-    # 1. Carrega Dados (Com Retry Logic)
+    # 1. Carrega Dados (Com Retry Logic já implementado nos carregadores)
     df_credito = carregar_dados_credito()
     df_carteira = carregar_dados_carteira()
     df_titulos_geral = carregar_dados_titulos() # Carrega base de títulos
@@ -866,7 +905,9 @@ def exibir_aba_fotos(is_admin=False):
         df_fotos = carregar_solicitacoes_fotos()
         if not df_fotos.empty:
             st.dataframe(df_fotos, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
-            if st.button("Atualizar Lista de Fotos"): st.cache_data.clear(); st.rerun()
+            if st.button("Atualizar Lista de Fotos"): 
+                carregar_solicitacoes_fotos.clear()
+                st.rerun()
         else: st.info("Nenhum pedido de foto registrado.")
 
 def exibir_aba_certificados(is_admin=False):
@@ -892,7 +933,9 @@ def exibir_aba_certificados(is_admin=False):
         if 'Email' in df_cert.columns: df_cert = df_cert[df_cert['Email'].str.lower() == user_email.lower()]
     if not df_cert.empty:
         st.dataframe(df_cert, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
-        if st.button("Atualizar Lista de Certificados"): st.cache_data.clear(); st.rerun()
+        if st.button("Atualizar Lista de Certificados"): 
+            carregar_solicitacoes_certificados.clear()
+            st.rerun()
     else: st.info("Nenhum pedido encontrado.")
 
 def exibir_aba_notas(is_admin=False):
@@ -922,7 +965,9 @@ def exibir_aba_notas(is_admin=False):
         if 'Email' in df_notas.columns: df_notas = df_notas[df_notas['Email'].str.lower() == user_email.lower()]
     if not df_notas.empty:
         st.dataframe(df_notas, use_container_width=True, column_config={"NF": st.column_config.TextColumn("NF")})
-        if st.button("Atualizar Lista de Notas"): st.cache_data.clear(); st.rerun()
+        if st.button("Atualizar Lista de Notas"): 
+            carregar_solicitacoes_notas.clear()
+            st.rerun()
     else: st.info("Nenhum pedido encontrado.")
 
 # --- SESSÃO ---
@@ -956,9 +1001,12 @@ if not st.session_state['logado']:
             u = st.text_input("Login").strip()
             s = st.text_input("Senha", type="password").strip()
             if st.button("Acessar", type="primary"):
+                # Agora usa a função com cache e retry logic
                 df = carregar_usuarios()
+                
                 if df.empty:
-                    st.error("Falha temporária de conexão. Por favor, tente novamente.")
+                    # Se mesmo com 5 tentativas falhar, aí sim mostra erro
+                    st.error("Falha temporária de conexão com o Banco de Dados. Por favor, tente novamente em alguns segundos.")
                 elif 'Login' not in df.columns or 'Senha' not in df.columns:
                     st.error("Erro técnico na validação do login. Contate o suporte.")
                 else:
@@ -985,7 +1033,9 @@ else:
         st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
         if st.button("Sair"): st.session_state.update({'logado': False, 'usuario_nome': ""}); st.rerun()
         st.divider()
-        if st.button("🔄 Atualizar Dados"): st.cache_data.clear(); st.rerun()
+        if st.button("🔄 Atualizar Dados"): 
+            st.cache_data.clear()
+            st.rerun()
 
     if st.session_state['usuario_tipo'].lower() == "admin":
         a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
