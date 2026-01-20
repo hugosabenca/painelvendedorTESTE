@@ -88,7 +88,8 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
 
 @st.cache_data(ttl="30m", show_spinner=False)
 def carregar_usuarios():
-    df_users = ler_com_retry(URL_SISTEMA, "Usuarios")
+    # Aumentei as tentativas para 10 para o LOGIN ser infalível
+    df_users = ler_com_retry(URL_SISTEMA, "Usuarios", tentativas=10, espera=2)
     if not df_users.empty: return df_users.astype(str)
     return pd.DataFrame()
 
