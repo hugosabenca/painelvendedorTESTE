@@ -83,12 +83,37 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
+# FUNÇÃO DE CORREÇÃO NÚMERICA (CORREÇÃO DO ERRO 165 MILHÕES)
+# ==============================================================================
+
+def converte_numero_seguro(valor):
+    """
+    Converte string para float detectando se é formato BR (vírgula) ou US (ponto).
+    Evita o erro de transformar 479.2 em 4792.
+    """
+    s = str(valor).strip()
+    if not s or s.lower() == 'nan' or s.lower() == 'none': return 0.0
+    
+    # Se tem vírgula, assume que é formato BR (ex: 1.000,50 ou 10,5)
+    if ',' in s:
+        s = s.replace('.', '') # Remove ponto de milhar
+        s = s.replace(',', '.') # Troca vírgula decimal por ponto
+    
+    # Se NÃO tem vírgula, mas tem ponto (ex: 479.2), assume formato US/Python
+    # Não fazemos replace nesse caso para não perder o decimal
+    
+    try:
+        return float(s)
+    except:
+        return 0.0
+
+# ==============================================================================
 # CARREGAMENTO DE DADOS (COM CACHE)
 # ==============================================================================
 
 @st.cache_data(ttl="30m", show_spinner=False)
 def carregar_usuarios():
-    # Aumentei as tentativas para 10 para o LOGIN ser infalível
+    # Login resiliente (10 tentativas)
     df_users = ler_com_retry(URL_SISTEMA, "Usuarios", tentativas=10, espera=2)
     if not df_users.empty: return df_users.astype(str)
     return pd.DataFrame()
@@ -99,9 +124,8 @@ def ler_dados_nuvem_generico(aba, url_planilha):
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'TONS' in df.columns:
-            # CORREÇÃO CRÍTICA PARA NÚMEROS COM VÍRGULA
-            df['TONS'] = df['TONS'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
+            # Aplica a função segura
+            df['TONS'] = df['TONS'].apply(converte_numero_seguro)
         if 'DATA_EMISSAO' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
         return df
@@ -116,8 +140,8 @@ def carregar_faturamento_vendedores():
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'TONS' in df.columns:
-            df['TONS'] = df['TONS'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
+            # Aplica a função segura
+            df['TONS'] = df['TONS'].apply(converte_numero_seguro)
         if 'DATA_EMISSAO' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
         return df
@@ -129,8 +153,7 @@ def carregar_metas_faturamento():
     if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
     df.columns = df.columns.str.strip().str.upper()
     if 'META' in df.columns:
-        df['META'] = df['META'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-        df['META'] = pd.to_numeric(df['META'], errors='coerce').fillna(0)
+        df['META'] = df['META'].apply(converte_numero_seguro)
     return df
 
 @st.cache_data(ttl="10m", show_spinner=False)
@@ -139,8 +162,7 @@ def carregar_dados_producao_nuvem():
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'VOLUME' in df.columns:
-            df['VOLUME'] = df['VOLUME'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-            df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce').fillna(0)
+            df['VOLUME'] = df['VOLUME'].apply(converte_numero_seguro)
         if 'DATA' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
         return df
@@ -152,8 +174,7 @@ def carregar_metas_producao():
     if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
     df.columns = df.columns.str.strip().str.upper()
     if 'META' in df.columns:
-        df['META'] = df['META'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-        df['META'] = pd.to_numeric(df['META'], errors='coerce').fillna(0)
+        df['META'] = df['META'].apply(converte_numero_seguro)
     return df
 
 @st.cache_data(ttl="5m", show_spinner=False)
@@ -545,9 +566,8 @@ def exibir_carteira_pedidos():
             df_filtrado = df_total[df_total["Vendedor Correto"].str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
         if df_filtrado.empty: st.info(f"Nenhum pedido pendente encontrado para a filial selecionada.")
         else:
-            # --- CORREÇÃO CRÍTICA DO ZERO (VÍRGULA x PONTO) ---
-            df_filtrado['Quantidade_Num'] = df_filtrado['Quantidade'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-            df_filtrado['Quantidade_Num'] = pd.to_numeric(df_filtrado['Quantidade_Num'], errors='coerce').fillna(0)
+            # --- APLICANDO A FUNÇÃO SEGURA TAMBÉM NOS PEDIDOS ---
+            df_filtrado['Quantidade_Num'] = df_filtrado['Quantidade'].apply(converte_numero_seguro)
             
             df_filtrado['Peso (ton)'] = df_filtrado['Quantidade_Num'].apply(formatar_peso_brasileiro)
             try:
