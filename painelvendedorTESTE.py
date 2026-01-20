@@ -733,7 +733,7 @@ def exibir_aba_credito():
         * **CANCELADO**: Convênio de crédito encerrado, não sendo mais possível operar via Supplier/BV.
         """)
 
-    # 1. Carrega Dados (Com Retry Logic já implementado nos carregadores)
+    # 1. Carrega Dados (Com Retry Logic)
     df_credito = carregar_dados_credito()
     df_carteira = carregar_dados_carteira()
     df_titulos_geral = carregar_dados_titulos() # Carrega base de títulos
@@ -1053,33 +1053,32 @@ else:
             st.cache_data.clear()
             st.rerun()
         
-        # --- NOVO BLOCO: FATURAMENTO DO VENDEDOR ---
-        st.divider()
-        
-        df_fat_vend = carregar_faturamento_vendedores()
-        
-        if not df_fat_vend.empty and 'VENDEDOR' in df_fat_vend.columns and 'DATA_DT' in df_fat_vend.columns:
-            usuario_atual = st.session_state['usuario_filtro']
+        # --- BLOCO: FATURAMENTO DO VENDEDOR (VISÍVEL APENAS PARA VENDEDOR) ---
+        if st.session_state['usuario_tipo'].lower() == "vendedor":
+            st.divider()
             
-            # Filtro Mês/Ano Corrente
-            df_mes = df_fat_vend[
-                (df_fat_vend['DATA_DT'].dt.month == agora.month) & 
-                (df_fat_vend['DATA_DT'].dt.year == agora.year)
-            ]
+            df_fat_vend = carregar_faturamento_vendedores()
             
-            # Filtro Usuário (Lógica de "Contém")
-            # Padroniza para maiúsculo e remove espaços extras
-            df_mes['VENDEDOR_CLEAN'] = df_mes['VENDEDOR'].astype(str).str.upper().str.strip()
-            user_clean = str(usuario_atual).upper().strip()
-            
-            df_user = df_mes[df_mes['VENDEDOR_CLEAN'].str.contains(user_clean, regex=False, na=False)]
-            
-            total_tons = df_user['TONS'].sum()
-            
-            st.markdown(f"### 🎯 Seu Desempenho")
-            st.caption(f"Volume Faturado em {meses[agora.month]}:")
-            # Exibe o valor formatado
-            st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            if not df_fat_vend.empty and 'VENDEDOR' in df_fat_vend.columns and 'DATA_DT' in df_fat_vend.columns:
+                usuario_atual = st.session_state['usuario_filtro']
+                
+                # Filtro Mês/Ano Corrente
+                df_mes = df_fat_vend[
+                    (df_fat_vend['DATA_DT'].dt.month == agora.month) & 
+                    (df_fat_vend['DATA_DT'].dt.year == agora.year)
+                ]
+                
+                # Filtro Usuário (Lógica de "Contém")
+                df_mes['VENDEDOR_CLEAN'] = df_mes['VENDEDOR'].astype(str).str.upper().str.strip()
+                user_clean = str(usuario_atual).upper().strip()
+                
+                df_user = df_mes[df_mes['VENDEDOR_CLEAN'].str.contains(user_clean, regex=False, na=False)]
+                
+                total_tons = df_user['TONS'].sum()
+                
+                st.markdown(f"### 🎯 Seu Desempenho")
+                st.caption(f"Volume Faturado em {meses[agora.month]}:")
+                st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     if st.session_state['usuario_tipo'].lower() == "admin":
         a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
