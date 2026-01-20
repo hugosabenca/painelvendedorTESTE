@@ -1,13 +1,14 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import pytz
 import altair as alt
 import time
 
 # ==============================================================================
-# CONFIGURAÇÕES GERAIS E URLS
+# CONFIGURAÇÕES GERAIS
 # ==============================================================================
 st.set_page_config(
     page_title="Painel Dox",
@@ -17,366 +18,260 @@ st.set_page_config(
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
-# --- USANDO URLS COMPLETAS PARA EVITAR ERRO DE LEITURA ---
+# URLs das Planilhas
 URL_SISTEMA = "https://docs.google.com/spreadsheets/d/1jODOp_SJUKWp1UaSmW_xJgkkyqDUexa56_P5QScAv3s/edit"
 URL_PINHEIRAL = "https://docs.google.com/spreadsheets/d/1DxTnEEh9VgbFyjqxYafdJ0-puSAIHYhZ6lo5wZTKDeg/edit"
 URL_BICAS = "https://docs.google.com/spreadsheets/d/1zKZK0fpYl-UtHcYmFkZJtOO17fTqBWaJ39V2UOukack/edit"
 
-# --- LISTAS DE MÁQUINAS (ABAS) ---
+# Abas de Produção
 ABAS_PINHEIRAL = ["Fagor", "Esquadros", "Marafon", "Divimec (Slitter)", "Divimec (Rebaixamento)"]
 ABAS_BICAS = ["LCT Divimec", "LCT Ungerer", "LCL Divimec", "Divimec (RM)", "Servomaq", "Blanqueadeira", "Recorte", "Osciladora", "Maçarico"]
 
 try:
     st.logo("logodox.png")
-except Exception:
+except:
     pass 
 
-# Conexão Global
-conn = st.connection("gsheets", type=GSheetsConnection)
-
 # ==============================================================================
-# FUNÇÃO MESTRA DE LEITURA (BLINDAGEM CONTRA ERROS DE CONEXÃO)
+# CONEXÃO GSPREAD (MOTOR OTIMIZADO)
 # ==============================================================================
 
-def ler_com_retry(url, aba, tentativas=5, espera=1):
+def conectar_google_sheets():
     """
-    Tenta ler uma aba do Google Sheets múltiplas vezes antes de desistir.
-    Isso evita que o painel mostre erro só porque o Robô estava escrevendo naquele segundo.
+    Cria uma conexão leve e direta com a API do Google.
     """
-    for i in range(tentativas):
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    
+    try:
+        # Tenta pegar dos segredos do Streamlit
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    except:
+        # Fallback para arquivo local (caso esteja rodando no PC)
+        creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    
+    client = gspread.authorize(creds)
+    return client
+
+def ler_aba_gspread(client, url_planilha, nome_aba):
+    """
+    Lê uma aba específica e retorna um DataFrame.
+    Usa 'get_all_values' que é mais robusto que 'get_all_records' para colunas vazias.
+    """
+    try:
+        sheet = client.open_by_url(url_planilha)
+        worksheet = sheet.worksheet(nome_aba)
+        
+        # Pega todos os dados como lista de listas
+        dados = worksheet.get_all_values()
+        
+        if not dados:
+            return pd.DataFrame()
+            
+        # A primeira linha é o cabeçalho
+        header = dados[0]
+        rows = dados[1:]
+        
+        df = pd.DataFrame(rows, columns=header)
+        return df
+    except Exception as e:
+        # Se der erro (ex: aba não existe), retorna vazio sem quebrar o app
+        return pd.DataFrame()
+
+def escrever_aba_gspread(client, url_planilha, nome_aba, df_novo, modo="append"):
+    """
+    Função genérica para salvar dados.
+    modo='append': Adiciona ao final.
+    modo='overwrite': Apaga tudo e escreve de novo.
+    """
+    try:
+        sheet = client.open_by_url(url_planilha)
         try:
-            # ttl=0 garante que estamos buscando dados frescos na tentativa, 
-            # mas o st.cache_data por fora controla a frequência.
-            df = conn.read(spreadsheet=url, worksheet=aba, ttl=0)
+            worksheet = sheet.worksheet(nome_aba)
+        except:
+            # Se não existir, cria (apenas se for overwrite, append precisa existir)
+            worksheet = sheet.add_worksheet(title=nome_aba, rows=100, cols=20)
+
+        if modo == "overwrite":
+            worksheet.clear()
+            # Prepara dados (incluindo header)
+            dados_lista = [df_novo.columns.values.tolist()] + df_novo.values.tolist()
+            worksheet.update(dados_lista, value_input_option="USER_ENTERED")
+        else:
+            # Append (sem header)
+            dados_lista = df_novo.values.tolist()
+            worksheet.append_rows(dados_lista, value_input_option="USER_ENTERED")
             
-            # Se a leitura retornou algo válido, encerramos o loop e devolvemos
-            if not df.empty:
-                return df
-            
-            # Se veio vazio mas não deu erro de conexão, pode ser que a aba esteja vazia mesmo.
-            # Mas vamos esperar um pouco e tentar de novo por garantia.
-            time.sleep(espera)
-            
-        except Exception as e:
-            # Se deu erro de conexão (Quota, Timeout, etc), espera e tenta de novo
-            time.sleep(espera)
-            
-    # Se falhou todas as vezes, retorna DataFrame vazio
-    return pd.DataFrame()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+        return False
 
 # ==============================================================================
-# CARREGAMENTO DE DADOS (COM CACHE + RETRY)
+# CACHING DE DADOS (CARREGAMENTO)
 # ==============================================================================
 
-# 1. LOGIN (CACHE LONGO DE 30 MINUTOS PARA EVITAR GARGALO)
+# O client não pode ser cacheado, mas os DataFrames sim.
+# Criamos uma função interna para obter o client fresco a cada execução de cache.
+
 @st.cache_data(ttl="30m", show_spinner=False)
 def carregar_usuarios():
-    # Usa a função blindada. Se falhar na primeira, tenta mais 4 vezes.
-    df_users = ler_com_retry(URL_SISTEMA, "Usuarios")
-    if not df_users.empty:
-        return df_users.astype(str)
-    return pd.DataFrame()
-
-# 2. DADOS DO SISTEMA (CACHE MÉDIO)
-@st.cache_data(ttl="10m", show_spinner=False)
-def ler_dados_nuvem_generico(aba, url_planilha):
-    df = ler_com_retry(url_planilha, aba)
-    if not df.empty:
-        df.columns = df.columns.str.strip().str.upper()
-        if 'TONS' in df.columns:
-            df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
-            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
-        if 'DATA_EMISSAO' in df.columns:
-            df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
-        return df
-    return pd.DataFrame()
-
-def carregar_dados_faturamento_direto():
-    return ler_dados_nuvem_generico("Dados_Faturamento", URL_SISTEMA)
-
-def carregar_dados_faturamento_transf():
-    return ler_dados_nuvem_generico("Dados_Faturamento_Transf", URL_SISTEMA)
-
-# --- NOVA FUNÇÃO PARA LER FATURAMENTO POR VENDEDOR ---
-@st.cache_data(ttl="10m", show_spinner=False)
-def carregar_faturamento_vendedores():
-    df = ler_com_retry(URL_SISTEMA, "Dados_Fat_Vendedores")
-    if not df.empty:
-        df.columns = df.columns.str.strip().str.upper()
-        # Tratamento numérico
-        if 'TONS' in df.columns:
-            df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
-            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
-        # Tratamento data
-        if 'DATA_EMISSAO' in df.columns:
-            df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
-        return df
-    return pd.DataFrame()
+    client = conectar_google_sheets()
+    df = ler_aba_gspread(client, URL_SISTEMA, "Usuarios")
+    return df
 
 @st.cache_data(ttl="10m", show_spinner=False)
-def carregar_metas_faturamento():
-    df = ler_com_retry(URL_SISTEMA, "Metas_Faturamento")
-    if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
+def carregar_dados_faturamento_geral():
+    # Carrega as 3 abas de faturamento de uma vez para otimizar cache
+    client = conectar_google_sheets()
     
-    df.columns = df.columns.str.strip().str.upper()
-    if 'META' in df.columns:
-            df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-    return df
-
-@st.cache_data(ttl="10m", show_spinner=False)
-def carregar_dados_producao_nuvem():
-    df = ler_com_retry(URL_SISTEMA, "Dados_Producao")
-    if not df.empty:
-        df.columns = df.columns.str.strip().str.upper()
-        if 'VOLUME' in df.columns:
-            df['VOLUME'] = pd.to_numeric(df['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-        if 'DATA' in df.columns:
-            df['DATA_DT'] = pd.to_datetime(df['DATA'], dayfirst=True, errors='coerce')
-        return df
-    return pd.DataFrame()
-
-@st.cache_data(ttl="10m", show_spinner=False)
-def carregar_metas_producao():
-    df = ler_com_retry(URL_SISTEMA, "Metas_Producao")
-    if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
+    df_direto = ler_aba_gspread(client, URL_SISTEMA, "Dados_Faturamento")
+    df_transf = ler_aba_gspread(client, URL_SISTEMA, "Dados_Faturamento_Transf")
+    df_vendedores = ler_aba_gspread(client, URL_SISTEMA, "Dados_Fat_Vendedores")
+    df_metas = ler_aba_gspread(client, URL_SISTEMA, "Metas_Faturamento")
     
-    df.columns = df.columns.str.strip().str.upper()
-    if 'META' in df.columns:
-            df['META'] = pd.to_numeric(df['META'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
-    return df
+    # Tratamentos
+    for df in [df_direto, df_transf, df_vendedores]:
+        if not df.empty:
+            df.columns = df.columns.str.strip().str.upper()
+            if 'TONS' in df.columns:
+                df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
+                df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
+            if 'DATA_EMISSAO' in df.columns:
+                df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
+    
+    if not df_metas.empty:
+        df_metas.columns = df_metas.columns.str.strip().str.upper()
+    
+    return df_direto, df_transf, df_vendedores, df_metas
 
-# 3. SOLICITAÇÕES E LOGS (CACHE CURTO PARA VER ATUALIZAÇÕES RÁPIDO)
+@st.cache_data(ttl="10m", show_spinner=False)
+def carregar_dados_producao_completo():
+    client = conectar_google_sheets()
+    df_prod = ler_aba_gspread(client, URL_SISTEMA, "Dados_Producao")
+    df_metas = ler_aba_gspread(client, URL_SISTEMA, "Metas_Producao")
+    
+    if not df_prod.empty:
+        df_prod.columns = df_prod.columns.str.strip().str.upper()
+        if 'VOLUME' in df_prod.columns:
+            df_prod['VOLUME'] = pd.to_numeric(df_prod['VOLUME'].astype(str).str.replace(',', '.'), errors='coerce').fillna(0)
+        if 'DATA' in df_prod.columns:
+            df_prod['DATA_DT'] = pd.to_datetime(df_prod['DATA'], dayfirst=True, errors='coerce')
 
-@st.cache_data(ttl="5m", show_spinner=False)
-def carregar_solicitacoes():
-    df = ler_com_retry(URL_SISTEMA, "Solicitacoes")
-    if df.empty: return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
-    return df
+    if not df_metas.empty:
+        df_metas.columns = df_metas.columns.str.strip().str.upper()
 
-@st.cache_data(ttl="5m", show_spinner=False)
-def carregar_solicitacoes_fotos():
-    df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Fotos")
-    if not df.empty:
-        cols_map = {c: c.strip() for c in df.columns}
-        df = df.rename(columns=cols_map)
-        if "Lote" in df.columns: 
-            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
-        return df
-    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-
-@st.cache_data(ttl="5m", show_spinner=False)
-def carregar_solicitacoes_certificados():
-    df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Certificados")
-    if not df.empty:
-        cols_map = {c: c.strip() for c in df.columns}
-        df = df.rename(columns=cols_map)
-        if "Lote" in df.columns: 
-            df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
-        return df
-    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    return df_prod, df_metas
 
 @st.cache_data(ttl="5m", show_spinner=False)
-def carregar_solicitacoes_notas():
-    df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Notas")
-    if not df.empty:
-        cols_map = {c: c.strip() for c in df.columns}
-        df = df.rename(columns=cols_map)
-        if "NF" in df.columns: 
-            df["NF"] = df["NF"].astype(str).str.replace("'", "") 
-        return df
-    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
-
-@st.cache_data(ttl="5m", show_spinner=False)
-def carregar_logs_acessos():
-    df = ler_com_retry(URL_SISTEMA, "Acessos")
-    if not df.empty:
-        df.columns = df.columns.str.strip()
-        if "Data" in df.columns:
-            try:
-                df["Data_Dt"] = pd.to_datetime(df["Data"], dayfirst=True, errors='coerce')
-                df = df.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
-            except: pass
-        return df
-    return pd.DataFrame(columns=["Data", "Login", "Nome"])
-
-# 4. CARTEIRA E PEDIDOS (PROCESSAMENTO MAIS PESADO)
+def carregar_solicitacoes_geral():
+    client = conectar_google_sheets()
+    df_sol = ler_aba_gspread(client, URL_SISTEMA, "Solicitacoes")
+    df_fotos = ler_aba_gspread(client, URL_SISTEMA, "Solicitacoes_Fotos")
+    df_cert = ler_aba_gspread(client, URL_SISTEMA, "Solicitacoes_Certificados")
+    df_notas = ler_aba_gspread(client, URL_SISTEMA, "Solicitacoes_Notas")
+    df_logs = ler_aba_gspread(client, URL_SISTEMA, "Acessos")
+    
+    # Tratamento Logs
+    if not df_logs.empty and "Data" in df_logs.columns:
+        try:
+            df_logs["Data_Dt"] = pd.to_datetime(df_logs["Data"], dayfirst=True, errors='coerce')
+            df_logs = df_logs.sort_values(by="Data_Dt", ascending=False).drop(columns=["Data_Dt"])
+        except: pass
+        
+    return df_sol, df_fotos, df_cert, df_notas, df_logs
 
 @st.cache_data(ttl="15m", show_spinner=False)
-def carregar_dados_pedidos():
+def carregar_pedidos_multilojas():
+    """
+    Aqui está o maior gargalo. Lendo com gspread é mais rápido, mas ainda são muitas abas.
+    Adicionamos um pequeno sleep para evitar erro 429 (Too Many Requests).
+    """
+    client = conectar_google_sheets()
     dados_consolidados = []
     
-    # Busca Pinheiral
-    for aba in ABAS_PINHEIRAL:
-        df = ler_com_retry(URL_PINHEIRAL, aba, tentativas=2) # Menos tentativas aqui para não demorar demais se falhar
-        if not df.empty:
-            df = df.astype(str) # Conversão de segurança
-            df['Máquina/Processo'] = aba
-            df['Filial_Origem'] = "PINHEIRAL"
-            
-            cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
-            cols_existentes = [c for c in cols_necessarias if c in df.columns]
-            
-            if "Vendedor Correto" in cols_existentes:
-                df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
-                if "Número do Pedido" in df_limpo.columns:
-                    df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
-                dados_consolidados.append(df_limpo)
+    # Função interna para processar lista de abas
+    def processar_abas(url_filial, lista_abas, nome_filial):
+        for aba in lista_abas:
+            try:
+                # Lê a aba
+                df = ler_aba_gspread(client, url_filial, aba)
+                if not df.empty:
+                    df['Máquina/Processo'] = aba
+                    df['Filial_Origem'] = nome_filial
+                    
+                    # Filtra colunas
+                    cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
+                    cols_existentes = [c for c in cols_necessarias if c in df.columns]
+                    
+                    if "Vendedor Correto" in cols_existentes:
+                        df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
+                        if "Número do Pedido" in df_limpo.columns:
+                            # Limpeza de zeros e pontos
+                            df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
+                        dados_consolidados.append(df_limpo)
+                
+                # Pausa estratégica para respirar a API
+                time.sleep(0.5) 
+                
+            except Exception as e:
+                continue
 
-    # Busca Bicas
-    for aba in ABAS_BICAS:
-        df = ler_com_retry(URL_BICAS, aba, tentativas=2)
-        if not df.empty:
-            df = df.astype(str)
-            df['Máquina/Processo'] = aba
-            df['Filial_Origem'] = "SJ BICAS"
-            
-            cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
-            cols_existentes = [c for c in cols_necessarias if c in df.columns]
-            
-            if "Vendedor Correto" in cols_existentes:
-                df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
-                if "Número do Pedido" in df_limpo.columns:
-                    df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
-                dados_consolidados.append(df_limpo)
+    processar_abas(URL_PINHEIRAL, ABAS_PINHEIRAL, "PINHEIRAL")
+    processar_abas(URL_BICAS, ABAS_BICAS, "SJ BICAS")
 
-    if dados_consolidados: 
+    if dados_consolidados:
         return pd.concat(dados_consolidados, ignore_index=True)
     return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
-def carregar_dados_credito():
-    df = ler_com_retry(URL_SISTEMA, "Dados_Credito")
-    if not df.empty:
-        df = df.astype(str)
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    return pd.DataFrame()
-
-@st.cache_data(ttl="5m", show_spinner=False)
-def carregar_dados_carteira():
-    df = ler_com_retry(URL_SISTEMA, "Dados_Carteira")
-    if not df.empty:
-        df = df.astype(str)
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    return pd.DataFrame()
-
-@st.cache_data(ttl="5m", show_spinner=False)
-def carregar_dados_titulos():
-    df = ler_com_retry(URL_SISTEMA, "Dados_Titulos")
-    if not df.empty:
-        df = df.astype(str)
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    return pd.DataFrame()
+def carregar_dados_credito_geral():
+    client = conectar_google_sheets()
+    df_credito = ler_aba_gspread(client, URL_SISTEMA, "Dados_Credito")
+    df_carteira = ler_aba_gspread(client, URL_SISTEMA, "Dados_Carteira")
+    df_titulos = ler_aba_gspread(client, URL_SISTEMA, "Dados_Titulos")
+    
+    for df in [df_credito, df_carteira, df_titulos]:
+        if not df.empty:
+            df.columns = df.columns.str.strip().str.upper()
+            
+    return df_credito, df_carteira, df_titulos
 
 # ==============================================================================
-# FUNÇÕES DE ESCRITA (ESCRITA NÃO USA CACHE, MAS PRECISA DE TRY/EXCEPT)
+# FUNÇÕES DE AÇÃO (SALVAR DADOS)
 # ==============================================================================
-
-def salvar_metas_faturamento(dicionario_metas):
-    try:
-        df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['FILIAL', 'META'])
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Faturamento", data=df_novo)
-        return True
-    except Exception as e: return False
-
-def salvar_metas_producao(dicionario_metas):
-    try:
-        df_novo = pd.DataFrame(list(dicionario_metas.items()), columns=['MAQUINA', 'META'])
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Metas_Producao", data=df_novo)
-        return True
-    except Exception as e: return False
 
 def registrar_acesso(login, nome):
-    try:
-        # Tenta ler sem retry exagerado, pois é log
-        try: df_logs = conn.read(spreadsheet=URL_SISTEMA, worksheet="Acessos", ttl=0)
-        except: df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
-        
-        if df_logs.empty and "Data" not in df_logs.columns: 
-            df_logs = pd.DataFrame(columns=["Data", "Login", "Nome"])
-            
-        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-        novo_log = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome}])
-        df_final = pd.concat([df_logs, novo_log], ignore_index=True)
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Acessos", data=df_final)
-    except: pass
+    client = conectar_google_sheets()
+    agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+    novo_log = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome}])
+    escrever_aba_gspread(client, URL_SISTEMA, "Acessos", novo_log, modo="append")
 
 def salvar_nova_solicitacao(nome, email, login, senha):
-    try:
-        df_existente = carregar_solicitacoes() # Usa a versão cacheada/blindada para ler
-        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
-        nova_linha = pd.DataFrame([{"Nome": nome, "Email": email, "Login": login, "Senha": senha, "Data": agora_br, "Status": "Pendente"}])
-        df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes", data=df_final)
-        # Limpa cache para refletir a mudança
-        carregar_solicitacoes.clear()
+    client = conectar_google_sheets()
+    agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
+    nova_linha = pd.DataFrame([{"Nome": nome, "Email": email, "Login": login, "Senha": senha, "Data": agora_br, "Status": "Pendente"}])
+    if escrever_aba_gspread(client, URL_SISTEMA, "Solicitacoes", nova_linha, modo="append"):
+        carregar_solicitacoes_geral.clear()
         return True
-    except Exception as e: return False
+    return False
 
-def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
-    try:
-        try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", ttl=0)
-        except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-        
-        if df_existente.empty and "Data" not in df_existente.columns: 
-            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-            
-        lote_formatado = f"'{lote}"
-        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
-        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
-        df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Fotos", data=df_final)
-        
-        # Limpa o cache para o usuário ver o pedido na lista imediatamente
-        carregar_solicitacoes_fotos.clear()
+def salvar_generico_solicitacao(aba, dados_dict):
+    client = conectar_google_sheets()
+    nova_linha = pd.DataFrame([dados_dict])
+    if escrever_aba_gspread(client, URL_SISTEMA, aba, nova_linha, modo="append"):
+        carregar_solicitacoes_geral.clear()
         return True
-    except Exception as e: return False
+    return False
 
-def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
-    try:
-        try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", ttl=0)
-        except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-        
-        if df_existente.empty and "Data" not in df_existente.columns: 
-            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
-            
-        lote_formatado = f"'{lote}"
-        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
-        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
-        df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Certificados", data=df_final)
-        
-        carregar_solicitacoes_certificados.clear()
-        return True
-    except Exception as e: return False
+def salvar_metas(aba, df_novo):
+    client = conectar_google_sheets()
+    # Metas sobrescrevem a aba inteira
+    return escrever_aba_gspread(client, URL_SISTEMA, aba, df_novo, modo="overwrite")
 
-def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
-    try:
-        try: df_existente = conn.read(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", ttl=0)
-        except: df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
-        
-        if df_existente.empty and "Data" not in df_existente.columns: 
-            df_existente = pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
-            
-        nf_str = f"'{nf_numero}"
-        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
-        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "NF": nf_str, "Filial": filial, "Status": "Pendente"}])
-        df_final = pd.concat([df_existente, nova_linha], ignore_index=True)
-        conn.update(spreadsheet=URL_SISTEMA, worksheet="Solicitacoes_Notas", data=df_final)
-        
-        carregar_solicitacoes_notas.clear()
-        return True
-    except Exception as e: return False
-
-def formatar_peso_brasileiro(valor):
-    try:
-        if pd.isna(valor) or valor == "": return "0"
-        texto = f"{float(valor):.3f}"
-        texto = texto.replace('.', ',').rstrip('0').rstrip(',')
-        return texto
-    except: return str(valor)
+# ==============================================================================
+# UI - INTERFACE (Adaptada para usar as novas funções)
+# ==============================================================================
 
 def formatar_moeda(valor):
     try:
@@ -385,608 +280,7 @@ def formatar_moeda(valor):
         return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except: return str(valor)
 
-# ==============================================================================
-# UI
-# ==============================================================================
-
-def plotar_grafico_faturamento(df_filtrado, titulo_grafico, meta_valor=None):
-    if df_filtrado.empty:
-        st.warning(f"Sem dados para {titulo_grafico} neste período.")
-        return
-    def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-    df_hoje = df_filtrado[df_filtrado['DATA_DT'].dt.date == hoje_normalizado.date()]
-    val_hoje = df_hoje['TONS'].sum()
-    txt_hoje = f"**Hoje ({hoje_normalizado.strftime('%d/%m')}):** {fmt_br(val_hoje)} Ton"
-    df_last = df_filtrado[(df_filtrado['TONS'] > 0) & (df_filtrado['DATA_DT'].dt.date < hoje_normalizado.date())].sort_values('DATA_DT', ascending=False)
-    if not df_last.empty:
-        last_date = df_last['DATA_DT'].max()
-        last_val = df_last[df_last['DATA_DT'] == last_date]['TONS'].sum()
-        txt_last = f"**Último Faturamento ({last_date.strftime('%d/%m')}):** {fmt_br(last_val)} Ton"
-    else: txt_last = "**Último Faturamento:** -"
-    st.markdown(f"### {titulo_grafico}")
-    st.markdown(f"{txt_hoje} | {txt_last}")
-    df_chart = df_filtrado.copy()
-    df_chart['DATA_STR'] = df_chart['DATA_DT'].dt.strftime('%d/%m/%Y')
-    df_chart['TONS_TXT'] = df_chart['TONS'].apply(lambda x: f"{x:.1f}".replace('.', ','))
-    base = alt.Chart(df_chart).encode(x=alt.X('DATA_STR', title=None, sort=None, axis=alt.Axis(labelAngle=0)))
-    barras = base.mark_bar(color='#0078D4', size=40).encode(y=alt.Y('TONS', title='Toneladas'), tooltip=['DATA_STR', 'TONS'])
-    rotulos = base.mark_text(dy=-10, color='black').encode(y=alt.Y('TONS'), text=alt.Text('TONS_TXT'))
-    grafico = (barras + rotulos)
-    if meta_valor is not None and meta_valor > 0:
-        regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
-        texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
-        grafico = (grafico + regra_meta + texto_meta)
-    grafico = grafico.properties(height=400)
-    st.altair_chart(grafico, use_container_width=True)
-    st.divider()
-
-def exibir_aba_faturamento():
-    st.subheader("📊 Painel de Faturamento")
-    if st.button("🔄 Atualizar Gráfico"):
-        with st.spinner("Buscando dados sincronizados..."):
-            # Limpa cache específico destas funções para forçar atualização
-            carregar_dados_faturamento_direto.clear()
-            carregar_dados_faturamento_transf.clear()
-            
-            st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
-            st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
-            st.session_state['metas_faturamento'] = carregar_metas_faturamento()
-            
-    if 'metas_faturamento' not in st.session_state: st.session_state['metas_faturamento'] = carregar_metas_faturamento()
-    if 'dados_faturamento' not in st.session_state: st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
-    if 'dados_faturamento_transf' not in st.session_state: st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
-    
-    with st.expander("⚙️ Definir Meta (tons)"):
-        with st.form("form_metas_fat"):
-            st.caption("Defina a meta diária de faturamento para PINHEIRAL (Direto).")
-            novas_metas = {}
-            valor_atual = 0.0
-            df_m = st.session_state['metas_faturamento']
-            if not df_m.empty:
-                filtro = df_m[df_m['FILIAL'] == 'PINHEIRAL']
-                if not filtro.empty: valor_atual = float(filtro.iloc[0]['META'])
-            novas_metas['PINHEIRAL'] = st.number_input("PINHEIRAL", value=valor_atual, step=1.0, min_value=0.0)
-            if st.form_submit_button("💾 Salvar Metas"):
-                if salvar_metas_faturamento(novas_metas):
-                    st.success("Meta atualizada!")
-                    carregar_metas_faturamento.clear() # Limpa cache
-                    st.session_state['metas_faturamento'] = carregar_metas_faturamento()
-                    st.rerun()
-    st.divider()
-    periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="fat_periodo")
-    hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-    if periodo == "Últimos 7 Dias": data_limite = hoje_normalizado - timedelta(days=6)
-    else: data_limite = hoje_normalizado.replace(day=1)
-    df_direto = st.session_state['dados_faturamento']
-    if not df_direto.empty:
-        df_filtro_direto = df_direto[df_direto['DATA_DT'].dt.date >= data_limite.date()]
-        meta_direto = 0
-        df_m = st.session_state['metas_faturamento']
-        if not df_m.empty:
-            fmeta = df_m[df_m['FILIAL'] == 'PINHEIRAL']
-            if not fmeta.empty: meta_direto = float(fmeta.iloc[0]['META'])
-        plotar_grafico_faturamento(df_filtro_direto, "Faturamento Direto: Pinheiral", meta_direto)
-    else: st.info("Sem dados de Faturamento Direto carregados.")
-    df_transf = st.session_state['dados_faturamento_transf']
-    if not df_transf.empty:
-        df_filtro_transf = df_transf[df_transf['DATA_DT'].dt.date >= data_limite.date()]
-        plotar_grafico_faturamento(df_filtro_transf, "Faturamento Transferência: Pinheiral", meta_valor=None) 
-    else: st.info("Sem dados de Transferência carregados.")
-
-def exibir_aba_producao():
-    st.subheader("🏭 Painel de Produção (Pinheiral)")
-    if st.button("🔄 Atualizar Produção"):
-        with st.spinner("Carregando indicadores..."):
-            carregar_dados_producao_nuvem.clear() # Limpa cache
-            st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
-            st.session_state['metas_producao'] = carregar_metas_producao()
-            
-    if 'metas_producao' not in st.session_state: st.session_state['metas_producao'] = carregar_metas_producao()
-    with st.expander("⚙️ Definir Metas Diárias (Tons)"):
-        if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
-            lista_maquinas = sorted(st.session_state['dados_producao']['MAQUINA'].unique())
-        else: lista_maquinas = ["Divimec 1", "Divimec 2", "Endireitadeira", "Esquadros", "Fagor", "Marafon"]
-        with st.form("form_metas"):
-            st.caption("Defina a meta diária (Tons) para cada máquina.")
-            novas_metas = {}
-            cols = st.columns(3)
-            df_metas_atual = st.session_state['metas_producao']
-            for i, mq in enumerate(lista_maquinas):
-                valor_atual = 0.0
-                if not df_metas_atual.empty:
-                    filtro = df_metas_atual[df_metas_atual['MAQUINA'] == mq]
-                    if not filtro.empty: valor_atual = float(filtro.iloc[0]['META'])
-                with cols[i % 3]: novas_metas[mq] = st.number_input(f"{mq}", value=valor_atual, step=1.0, min_value=0.0)
-            if st.form_submit_button("💾 Salvar Metas"):
-                if salvar_metas_producao(novas_metas): 
-                    st.success("Metas atualizadas!")
-                    carregar_metas_producao.clear()
-                    st.session_state['metas_producao'] = carregar_metas_producao()
-                    st.rerun()
-    st.divider()
-    if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
-        df = st.session_state['dados_producao']
-        df_metas = st.session_state['metas_producao']
-        periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="prod_periodo")
-        hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
-        if periodo == "Últimos 7 Dias": data_limite = hoje_normalizado - timedelta(days=6) 
-        else: data_limite = hoje_normalizado.replace(day=1)
-        df_filtro = df[df['DATA_DT'].dt.date >= data_limite.date()]
-        if df_filtro.empty: 
-            st.warning("Nenhum dado encontrado para este período.")
-            return
-        total_prod = df_filtro['VOLUME'].sum()
-        dias_unicos = df_filtro['DATA_DT'].nunique()
-        media_diaria = total_prod / dias_unicos if dias_unicos > 0 else 0
-        k1, k2 = st.columns(2)
-        k1.metric("Total Produzido", f"{total_prod:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " Ton")
-        k2.metric("Média Diária", f"{media_diaria:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " Ton")
-        st.divider()
-        maquinas = sorted(df_filtro['MAQUINA'].unique())
-        def fmt_br(val): return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        for mq in maquinas:
-            df_mq = df_filtro[df_filtro['MAQUINA'] == mq].copy()
-            st.markdown(f"### Produção: {mq}")
-            df_hoje = df_mq[df_mq['DATA_DT'].dt.date == hoje_normalizado.date()]
-            hoje_a = df_hoje[df_hoje['TURNO'] == 'Turno A']['VOLUME'].sum()
-            hoje_c = df_hoje[df_hoje['TURNO'] == 'Turno C']['VOLUME'].sum()
-            hoje_total = hoje_a + hoje_c
-            texto_hoje = f"**Hoje ({hoje_normalizado.strftime('%d/%m')}):** Turno A: {fmt_br(hoje_a)} | Turno C: {fmt_br(hoje_c)} | **Total: {fmt_br(hoje_total)}**"
-            df_hist = df_mq[(df_mq['VOLUME'] > 0) & (df_mq['DATA_DT'].dt.date < hoje_normalizado.date())]
-            if not df_hist.empty:
-                last_date = df_hist['DATA_DT'].max()
-                df_last = df_hist[df_hist['DATA_DT'] == last_date]
-                last_a = df_last[df_last['TURNO'] == 'Turno A']['VOLUME'].sum()
-                last_c = df_last[df_last['TURNO'] == 'Turno C']['VOLUME'].sum()
-                last_total = last_a + last_c
-                texto_last = f"**Última Produção ({last_date.strftime('%d/%m')}):** Turno A: {fmt_br(last_a)} | Turno C: {fmt_br(last_c)} | **Total: {fmt_br(last_total)}**"
-            else: texto_last = "**Última Produção:** -"
-            st.markdown(texto_hoje); st.markdown(texto_last)
-            df_mq['VOLUME_TXT'] = df_mq['VOLUME'].apply(lambda x: f"{x:.1f}".replace('.', ','))
-            meta_valor = 0
-            if not df_metas.empty:
-                filtro_meta = df_metas[df_metas['MAQUINA'] == mq]
-                if not filtro_meta.empty: meta_valor = float(filtro_meta.iloc[0]['META'])
-            base = alt.Chart(df_mq).encode(x=alt.X('DATA', title=None, axis=alt.Axis(labelAngle=0)))
-            barras = base.mark_bar().encode(xOffset='TURNO', y=alt.Y('VOLUME', title='Tons'), color=alt.Color('TURNO', legend=alt.Legend(title="Turno", orient='top')), tooltip=['DATA', 'TURNO', 'VOLUME'])
-            rotulos = base.mark_text(dy=-10, color='black').encode(xOffset='TURNO', y=alt.Y('VOLUME'), text=alt.Text('VOLUME_TXT'))
-            regra_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_rule(color='red', strokeDash=[5, 5]).encode(y='y', size=alt.value(2))
-            texto_meta = alt.Chart(pd.DataFrame({'y': [meta_valor]})).mark_text(align='left', baseline='bottom', color='red', dx=5).encode(y='y', text=alt.value(f"Meta: {meta_valor}"))
-            grafico_final = (barras + rotulos + regra_meta + texto_meta).properties(height=350)
-            st.altair_chart(grafico_final, use_container_width=True)
-            st.markdown("---")
-    elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
-        st.warning("Nenhum dado na planilha de produção.")
-    else: st.info("Clique no botão para carregar.")
-
-def exibir_carteira_pedidos():
-    tipo_usuario = st.session_state['usuario_tipo'].lower()
-    df_total = carregar_dados_pedidos()
-    if df_total is not None and not df_total.empty:
-        df_total = df_total.dropna(subset=["Número do Pedido"])
-        df_total = df_total[~df_total["Número do Pedido"].isin(["000nan", "00None", "000000"])]
-        filtro_filial = st.selectbox("Selecione a Filial:", ["Todas", "PINHEIRAL", "SJ BICAS"])
-        if filtro_filial != "Todas":
-            df_total = df_total[df_total["Filial_Origem"] == filtro_filial]
-        nome_filtro = st.session_state['usuario_filtro']
-        if tipo_usuario in ["admin", "gerente", "master"]:
-            vendedores_unicos = sorted(df_total["Vendedor Correto"].dropna().unique())
-            filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos)
-            if filtro_vendedor != "Todos": df_filtrado = df_total[df_total["Vendedor Correto"] == filtro_vendedor].copy()
-            else: df_filtrado = df_total.copy()
-        elif tipo_usuario == "gerente comercial":
-            if "Gerente Correto" in df_total.columns: df_filtrado = df_total[df_total["Gerente Correto"].str.lower() == nome_filtro.lower()].copy()
-            else: df_filtrado = pd.DataFrame()
-        else: 
-            df_filtrado = df_total[df_total["Vendedor Correto"].str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
-        if df_filtrado.empty: st.info(f"Nenhum pedido pendente encontrado para a filial selecionada.")
-        else:
-            df_filtrado['Quantidade_Num'] = pd.to_numeric(df_filtrado['Quantidade'], errors='coerce').fillna(0)
-            df_filtrado['Peso (ton)'] = df_filtrado['Quantidade_Num'].apply(formatar_peso_brasileiro)
-            try:
-                df_filtrado['Prazo_dt'] = pd.to_datetime(df_filtrado['Prazo'], dayfirst=True, errors='coerce')
-                df_filtrado['Prazo'] = df_filtrado['Prazo_dt'].dt.strftime('%d/%m/%Y').fillna("-")
-            except: pass
-            colunas_visiveis = ["Número do Pedido", "Filial_Origem", "Cliente Correto", "Produto", "Peso (ton)", "Prazo", "Máquina/Processo"]
-            if tipo_usuario in ["admin", "gerente", "gerente comercial", "master"]: 
-                colunas_visiveis.insert(6, "Vendedor Correto")
-                if "Gerente Correto" in df_total.columns:
-                    colunas_visiveis.insert(7, "Gerente Correto")
-            colunas_finais = [c for c in colunas_visiveis if c in df_filtrado.columns]
-            df_final = df_filtrado[colunas_finais]
-            total_pedidos = len(df_filtrado)
-            total_peso = df_filtrado['Quantidade_Num'].sum()
-            total_peso_str = f"{total_peso:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            kpi1, kpi2 = st.columns(2)
-            kpi1.metric("Itens Programados:", total_pedidos)
-            kpi2.metric("Volume Total (Tons):", total_peso_str)
-            st.divider()
-            texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido, Produto...):")
-            if texto_busca:
-                mask = df_final.astype(str).apply(lambda x: x.str.contains(texto_busca, case=False, na=False)).any(axis=1)
-                df_exibicao = df_final[mask]
-            else: df_exibicao = df_final
-            st.dataframe(df_exibicao, hide_index=True, use_container_width=True, column_config={"Prazo": st.column_config.TextColumn("Previsão"), "Filial_Origem": st.column_config.TextColumn("Filial")})
-            if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
-    else: st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
-
-# --- DIALOG PARA EXIBIR TÍTULOS ---
-@st.dialog("Detalhes Financeiros", width="large")
-def mostrar_detalhes_titulos(cliente_nome, df_titulos):
-    st.markdown(f"### 🏢 {cliente_nome}")
-    st.caption("Abaixo a lista de títulos em aberto (vencidos e a vencer) para este cliente.")
-    
-    if df_titulos.empty:
-        st.warning("Não há títulos pendentes registrados para este CNPJ.")
-    else:
-        # Tratamento visual da tabela de títulos
-        df_show = df_titulos.copy()
-        
-        # Formatando valor como moeda para exibição
-        if "VALOR" in df_show.columns:
-            df_show["VALOR"] = df_show["VALOR"].apply(formatar_moeda)
-        if "SALDO" in df_show.columns:
-            df_show["SALDO"] = df_show["SALDO"].apply(formatar_moeda)
-
-        # Selecionar colunas relevantes para o vendedor
-        cols_visual = [
-            "DATA_EMISSAO", "NOTA_FISCAL", "PARCELA", "VALOR", "SALDO",
-            "VENCIMENTO", "STATUS_RESUMO", "STATUS_DETALHADO", "TIPO_DE_FATURAMENTO"
-        ]
-        
-        # Filtra colunas que realmente existem
-        cols_finais = [c for c in cols_visual if c in df_show.columns]
-        
-        st.dataframe(
-            df_show[cols_finais], 
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "NOTA_FISCAL": st.column_config.TextColumn("NF"),
-                "DATA_EMISSAO": st.column_config.TextColumn("Emissão"),
-                "STATUS_RESUMO": st.column_config.TextColumn("Status"),
-                "STATUS_DETALHADO": st.column_config.TextColumn("Detalhe Vencimento"),
-                "TIPO_DE_FATURAMENTO": st.column_config.TextColumn("Tipo Fat.")
-            }
-        )
-
-def exibir_aba_credito():
-    st.markdown("### 💰 Painel de Crédito <small style='font-weight: normal; font-size: 14px; color: gray;'>(Aba em teste. Qualquer divergência, por favor reporte.)</small>", unsafe_allow_html=True)
-    
-    # --- LEGENDA RETRÁTIL (NO TOPO) ---
-    with st.expander("ℹ️ Legenda: Entenda o significado de cada coluna (Clique para expandir)"):
-        st.markdown("""
-        **CLIENTE**: Nome do cliente cadastrado na empresa.
-        
-        **CNPJ**: CNPJ do cliente.
-        
-        **VENDEDOR**: Vendedor responsável pelo atendimento desse cliente.
-        
-        **GERENTE**: Gerente responsável pelo vendedor.
-        
-        **RISCO_DE_BLOQUEIO**: Indica o nível de risco de o cliente ter o faturamento bloqueado no momento.
-        * **ALTO**: Faturamento pode ser bloqueado. Atenção imediata.
-        * **MÉDIO**: Atenção, pode virar bloqueio em breve.
-        * **BAIXO**: Situação normal no momento.
-        
-        **ACAO_SUGERIDA**: Orientação clara do que o vendedor deve fazer agora com esse cliente (cobrar, aguardar, falar com Financeiro ou faturar normalmente).
-        
-        **MOTIVO_PROVAVEL_DO_BLOQUEIO**: Explica o principal motivo que pode causar bloqueio de faturamento (atraso, limite vencido, limite baixo ou outro risco identificado).
-        
-        **OPCAO_DE_FATURAMENTO**: Mostra por qual tipo de crédito o cliente pode faturar no momento.
-        * Crédito disponível via LC DOX e BV: Pode faturar normalmente.
-        * Somente LC DOX disponível: Faturar apenas dentro do limite DOX.
-        * Somente BV disponível: Faturar usando BV.
-        * Sem crédito disponível: Necessário falar com o Financeiro antes de faturar.
-        
-        **RECEBÍVEIS**: Indica se o cliente possui títulos vencidos em aberto.
-        * **Em Atraso**: Existe valor vencido não pago.
-        * **Em Dia**: Nenhum título vencido.
-        
-        **DIAS_EM_ATRASO_RECEBIVEIS**: Quantidade de dias que o título mais antigo está em atraso. Quanto maior, maior o risco de bloqueio.
-        
-        **SALDO_VENCIDO**: Valor total em aberto de títulos que já venceram e ainda não foram pagos pelo cliente.
-        
-        **VENCIMENTO LC**: Situação do vencimento do limite de crédito do cliente.
-        * **LC OK**: Limite válido.
-        * **LC Vencido**: Limite expirado.
-        * **Sem data de vencimento**: Cadastro precisa ser verificado com o Financeiro.
-        
-        **DIAS_PARA_VENCER_LC**: Quantos dias faltam para o limite de crédito vencer. Valores baixos indicam atenção.
-        
-        **DATA_VENC_LC**: Data em que o limite de crédito do cliente vence.
-        
-        **DISPONIVEL VIA LC2**: Valor disponível para faturar usando o limite de crédito DOX, já considerando títulos em aberto.
-        
-        **DISPONIVEL BV**: Valor disponível para faturar usando a modalidade BV (Banco/Vendor).
-        
-        **DISPONIVEL VIA RA**: Valor disponível para faturar via RA (recebimento antecipado), desde que não existam atrasos.
-        
-        **SALDO_A_VENCER**: Valor total de títulos que ainda vão vencer no futuro (não estão atrasados).
-        
-        **DIAS_PARA_VENCER_TITULO**: Quantidade de dias para o próximo título vencer. Ajuda a prever risco de atraso.
-        
-        **DATA_VENCIMENTO_MAIS_ANTIGA**: Data do título vencido mais antigo do cliente. Indica há quanto tempo existe inadimplência.
-        
-        **LC_DOX**: Limite de crédito DOX ainda disponível após considerar os títulos em aberto.
-        
-        **LC_BV**: Limite total disponível para faturamento via BV.
-        
-        **LC_TOTAL**: Valor total do limite de crédito concedido ao cliente.
-        
-        **RA**: Valor total de títulos do tipo RA (recebimento antecipado) ainda em aberto.
-        
-        **EM ABERTO**: Soma de todos os títulos em aberto do cliente, independentemente do vencimento.
-        
-        **EM ABERTO BV**: Valor total de títulos em aberto vinculados à modalidade BV.
-        
-        **LC_SUPPLIER**: Limite total de crédito aprovado pelo banco para o cliente operar via Supplier.
-        
-        **SUPPLIER_DISP**: Valor do limite Supplier que ainda está disponível para uso em novas vendas.
-        
-        **SITUACAO_LC**: Indica se o convênio de crédito do cliente com o banco (Supplier/BV) está liberado, bloqueado ou em análise no momento.
-        * **ATIVO / LIBERADO**: Cliente pode faturar normalmente via Supplier/BV.
-        * **BLOQUEADO**: Faturamento via Supplier/BV não é permitido até regularização.
-        * **SUSPENSO**: Convênio temporariamente suspenso pelo banco, sem liberação para faturar.
-        * **EM ANÁLISE**: Crédito em avaliação pelo banco, geralmente sem liberação até conclusão.
-        * **CANCELADO**: Convênio de crédito encerrado, não sendo mais possível operar via Supplier/BV.
-        """)
-
-    # 1. Carrega Dados (Com Retry Logic)
-    df_credito = carregar_dados_credito()
-    df_carteira = carregar_dados_carteira()
-    df_titulos_geral = carregar_dados_titulos() # Carrega base de títulos
-    
-    if df_credito.empty:
-        st.info("Nenhuma informação de crédito disponível no momento (Aguardando sincronização do Robô).")
-        return
-
-    # 2. Definição das Colunas
-    cols_order = [
-        "CNPJ", "CLIENTE", "VENDEDOR", "GERENTE", "RISCO_DE_BLOQUEIO", "ACAO_SUGERIDA", "MOTIVO_PROVAVEL_DO_BLOQUEIO",
-        "OPCAO_DE_FATURAMENTO", "RECEBIVEIS", "DIAS_EM_ATRASO_RECEBIVEIS", "SALDO_VENCIDO", "VENCIMENTO LC",
-        "DIAS_PARA_VENCER_LC", "DATA_VENC_LC", "DISPONIVEL VIA LC2", "DISPONIVEL BV", "DISPONIVEL VIA RA",
-        "SALDO_A_VENCER", "DIAS_PARA_VENCER_TITULO", "DATA_VENCIMENTO_MAIS_ANTIGA", "LC DOX", "LC BV", "LC TOTAL",
-        "RA", "EM_ABERTO", "EM ABERTO BV", "LC SUPPLIER", "SUPPLIER DISP", "SITUACAO LC"
-    ]
-    cols_financeiras = [
-        "SALDO_VENCIDO", "SALDO_A_VENCER", "LC TOTAL", "LC DOX", "RA", 
-        "EM_ABERTO", "DISPONIVEL VIA RA", "DISPONIVEL VIA LC2", "LC BV", 
-        "EM ABERTO BV", "DISPONIVEL BV", "LC SUPPLIER", "SUPPLIER DISP"
-    ]
-
-    # 3. Filtragem Global (Vendedor Logado)
-    tipo_usuario = st.session_state['usuario_tipo'].lower()
-    nome_usuario = st.session_state['usuario_filtro']
-    nome_usuario_limpo = nome_usuario.strip().lower()
-
-    if tipo_usuario in ["admin", "master", "gerente"]:
-        df_base = df_credito.copy()
-        
-    elif tipo_usuario == "gerente comercial":
-        if "GERENTE" in df_credito.columns:
-            df_credito["GERENTE_CLEAN"] = df_credito["GERENTE"].astype(str).str.strip().str.lower()
-            df_base = df_credito[df_credito["GERENTE_CLEAN"].str.contains(nome_usuario_limpo, na=False)].copy()
-        else:
-            df_base = pd.DataFrame()
-            
-    else:
-        if "VENDEDOR" in df_credito.columns:
-            df_credito["VENDEDOR_CLEAN"] = df_credito["VENDEDOR"].astype(str).str.strip().str.lower()
-            df_base = df_credito[df_credito["VENDEDOR_CLEAN"].str.contains(nome_usuario_limpo, na=False)].copy()
-        else:
-            df_base = pd.DataFrame()
-
-    if df_base.empty:
-        st.info(f"Nenhum cliente encontrado para o perfil: {nome_usuario}")
-        return
-
-    # 4. Tratamento Prévio
-    cols_existentes = [c for c in cols_order if c in df_base.columns]
-    df_base = df_base[cols_existentes].copy()
-
-    # --- INSERÇÃO DA COLUNA ISCA (AJUSTADA V63) ---
-    # Inserimos a coluna "DETALHES" na posição 0 com a seta e ajuste de largura
-    df_base.insert(0, "DETALHES", "👈 VER TÍTULOS")
-
-    # --- CONTROLE DE VISIBILIDADE DAS COLUNAS ---
-    if tipo_usuario == "gerente comercial":
-        if "GERENTE" in df_base.columns: df_base = df_base.drop(columns=["GERENTE"])
-    elif tipo_usuario not in ["admin", "master", "gerente"]: 
-        if "VENDEDOR" in df_base.columns: df_base = df_base.drop(columns=["VENDEDOR"])
-        if "GERENTE" in df_base.columns: df_base = df_base.drop(columns=["GERENTE"])
-
-    # Tratamento de Dias e Moeda
-    cols_dias = ["DIAS_PARA_VENCER_LC", "DIAS_PARA_VENCER_TITULO", "DIAS_EM_ATRASO_RECEBIVEIS"]
-    for col in cols_dias:
-        if col in df_base.columns:
-            df_base[col] = pd.to_numeric(df_base[col], errors='coerce').apply(lambda x: f"{int(x)}" if pd.notnull(x) else "")
-
-    for col in cols_financeiras:
-        if col in df_base.columns:
-            df_base[col] = df_base[col].apply(formatar_moeda)
-
-    df_base = df_base.astype(str).replace(['None', 'nan', 'NaT', '<NA>', 'nan.0'], '')
-
-    # 5. Filtro de Busca
-    texto_busca_credito = st.text_input("🔍 Filtrar Clientes (CNPJ, Nome...):")
-    if texto_busca_credito:
-        mask = df_base.astype(str).apply(lambda x: x.str.contains(texto_busca_credito, case=False, na=False)).any(axis=1)
-        df_base = df_base[mask]
-
-    # 6. Separação: Com Pedido vs Sem Pedido
-    lista_clientes_com_pedido = []
-    if not df_carteira.empty and "CLIENTE" in df_carteira.columns:
-        lista_clientes_com_pedido = df_carteira["CLIENTE"].unique().tolist()
-
-    if "CLIENTE" in df_base.columns:
-        df_prioridade = df_base[df_base["CLIENTE"].isin(lista_clientes_com_pedido)].copy()
-    else:
-        df_prioridade = pd.DataFrame()
-
-    # Configuração das Colunas (V67 - SUPPLIER ADICIONADO)
-    config_colunas = {
-        "DETALHES": st.column_config.TextColumn("", help="Clique na caixa de seleção à esquerda para ver os títulos.", width=130),
-        "CLIENTE": st.column_config.TextColumn("Cliente", help="Nome do cliente."),
-        "CNPJ": st.column_config.TextColumn("CNPJ", help="CNPJ."),
-        "VENDEDOR": st.column_config.TextColumn("Vendedor", help="Vendedor."),
-        "GERENTE": st.column_config.TextColumn("Gerente", help="Gerente."),
-        "RISCO_DE_BLOQUEIO": st.column_config.TextColumn("RISCO_DE_BLOQUEIO", help="Nível de risco de bloqueio (ALTO/MÉDIO/BAIXO)."),
-        "ACAO_SUGERIDA": st.column_config.TextColumn("ACAO_SUGERIDA", help="Orientação do que fazer."),
-        "MOTIVO_PROVAVEL_DO_BLOQUEIO": st.column_config.TextColumn("MOTIVO_PROVAVEL_DO_BLOQUEIO", help="Motivo do risco."),
-        "OPCAO_DE_FATURAMENTO": st.column_config.TextColumn("OPCAO_DE_FATURAMENTO", help="Opção de faturamento disponível."),
-        "RECEBIVEIS": st.column_config.TextColumn("RECEBÍVEIS", help="Status dos pagamentos (Em Dia / Em Atraso)."),
-        "DIAS_EM_ATRASO_RECEBIVEIS": st.column_config.TextColumn("DIAS_EM_ATRASO_RECEBIVEIS", help="Dias de atraso do título mais antigo."),
-        "SALDO_VENCIDO": st.column_config.TextColumn("SALDO_VENCIDO", help="Valor vencido em aberto."),
-        "VENCIMENTO LC": st.column_config.TextColumn("VENCIMENTO LC", help="Status do limite (OK / Vencido)."),
-        "DIAS_PARA_VENCER_LC": st.column_config.TextColumn("DIAS_PARA_VENCER_LC", help="Dias para vencer o limite."),
-        "DATA_VENC_LC": st.column_config.TextColumn("DATA_VENC_LC", help="Data de vencimento do limite."),
-        "DISPONIVEL VIA LC2": st.column_config.TextColumn("DISPONIVEL VIA LC2", help="Valor livre no Limite DOX."),
-        "DISPONIVEL BV": st.column_config.TextColumn("DISPONIVEL BV", help="Valor livre no Limite BV."),
-        "DISPONIVEL VIA RA": st.column_config.TextColumn("DISPONÍVEL VIA RA", help="Valor livre via RA."),
-        "SALDO_A_VENCER": st.column_config.TextColumn("SALDO_A_VENCER", help="Valor a vencer."),
-        "DIAS_PARA_VENCER_TITULO": st.column_config.TextColumn("DIAS_PARA_VENCER_TITULO", help="Dias para o próximo título vencer."),
-        "DATA_VENCIMENTO_MAIS_ANTIGA": st.column_config.TextColumn("DATA_VENCIMENTO_MAIS_ANTIGA", help="Data do título vencido mais antigo."),
-        "LC DOX": st.column_config.TextColumn("LC_DOX", help="Limite DOX disponível."),
-        "LC BV": st.column_config.TextColumn("LC_BV", help="Limite BV total."),
-        "LC TOTAL": st.column_config.TextColumn("LC_TOTAL", help="Limite total."),
-        "RA": st.column_config.TextColumn("RA", help="Valor em RA."),
-        "EM_ABERTO": st.column_config.TextColumn("EM ABERTO", help="Total em aberto."),
-        "EM ABERTO BV": st.column_config.TextColumn("EM ABERTO BV", help="Total em aberto BV."),
-        "LC SUPPLIER": st.column_config.TextColumn("LC SUPPLIER", help="Limite total de crédito aprovado pelo banco para o cliente operar via Supplier."),
-        "SUPPLIER DISP": st.column_config.TextColumn("SUPPLIER DISP", help="Valor do limite Supplier que ainda está disponível para uso em novas vendas."),
-        "SITUACAO LC": st.column_config.TextColumn("SITUACAO LC", help="Indica se o convênio de crédito do cliente com o banco (Supplier/BV) está liberado, bloqueado ou em análise.")
-    }
-
-    # 7. Renderização das Tabelas com SELEÇÃO
-    
-    # Função auxiliar para exibir e processar a seleção
-    def exibir_tabela_com_selecao(df_input, titulo):
-        st.markdown(titulo)
-        # Evento de seleção de linha
-        event = st.dataframe(
-            df_input, 
-            hide_index=True, 
-            use_container_width=True, 
-            column_config=config_colunas,
-            on_select="rerun",
-            selection_mode="single-row"
-        )
-        
-        # Lógica: Se clicou
-        if event.selection.rows:
-            idx = event.selection.rows[0]
-            # Pega o CNPJ da linha selecionada
-            cnpj_selecionado = df_input.iloc[idx]["CNPJ"]
-            cliente_selecionado = df_input.iloc[idx]["CLIENTE"]
-            
-            # Filtra os títulos desse CNPJ
-            if not df_titulos_geral.empty:
-                df_titulos_filtrado = df_titulos_geral[df_titulos_geral["CNPJ"] == cnpj_selecionado]
-                mostrar_detalhes_titulos(cliente_selecionado, df_titulos_filtrado)
-            else:
-                mostrar_detalhes_titulos(cliente_selecionado, pd.DataFrame())
-
-    if not df_prioridade.empty:
-        exibir_tabela_com_selecao(df_prioridade, "#### Clientes com Pedidos Abertos")
-        st.divider()
-    
-    exibir_tabela_com_selecao(df_base, "#### Todos os Clientes")
-
-
-def exibir_aba_fotos(is_admin=False):
-    st.info("ℹ️ Somente materiais da filial de Pinheiral.") 
-    st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
-    st.markdown("Digite o número do Lote/Bobina abaixo para solicitar fotos de materiais no armazém 20/24.")
-    with st.form("form_foto"):
-        col_f1, col_f2 = st.columns([1, 2])
-        with col_f1: lote_input = st.text_input("Lote / Bobina:")
-        with col_f2: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''))
-        if st.form_submit_button("Solicitar Fotos", type="primary"):
-            if not lote_input: 
-                st.warning("Digite o lote.")
-            elif not email_input: 
-                st.warning("Preencha o e-mail.")
-            else:
-                # --- LIMPEZA DE ESPAÇOS AUTOMÁTICA ---
-                lote_limpo = lote_input.strip()
-                
-                if salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_limpo): 
-                    st.success(f"Solicitação do lote **{lote_limpo}** enviada!")
-
-    if is_admin:
-        st.divider()
-        st.markdown("### 🛠️ Gestão de Pedidos de Fotos (Visão Admin)")
-        df_fotos = carregar_solicitacoes_fotos()
-        if not df_fotos.empty:
-            st.dataframe(df_fotos, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
-            if st.button("Atualizar Lista de Fotos"): 
-                carregar_solicitacoes_fotos.clear()
-                st.rerun()
-        else: st.info("Nenhum pedido de foto registrado.")
-
-def exibir_aba_certificados(is_admin=False):
-    st.info("ℹ️ Somente bobinas nacionas. Materiais de SFS solicitar diretamente com o Faturamento/Logística da unidade.") 
-    st.subheader("📑 Solicitação de Certificados de Qualidade")
-    st.markdown("Digite o número do Lote/Bobina para receber o certificado de qualidade.")
-    with st.form("form_certificado"):
-        col_c1, col_c2 = st.columns([1, 2])
-        with col_c1: 
-            lote_cert = st.text_input("Lote / Bobina (Certificado):")
-            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
-        with col_c2: email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
-        if st.form_submit_button("Solicitar Certificado", type="primary"):
-            if not lote_cert: st.warning("Digite o lote.")
-            elif not email_cert: st.warning("Preencha o e-mail.")
-            elif salvar_solicitacao_certificado(st.session_state['usuario_nome'], email_cert, lote_cert): st.success(f"Solicitação de certificado do lote **{lote_cert}** enviada!")
-    st.divider()
-    if is_admin: st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
-    else: st.markdown("### 📜 Meus Pedidos de Certificados")
-    df_cert = carregar_solicitacoes_certificados()
-    if not df_cert.empty and not is_admin:
-        user_email = st.session_state.get('usuario_email', '')
-        if 'Email' in df_cert.columns: df_cert = df_cert[df_cert['Email'].str.lower() == user_email.lower()]
-    if not df_cert.empty:
-        st.dataframe(df_cert, use_container_width=True, column_config={"Lote": st.column_config.TextColumn("Lote")})
-        if st.button("Atualizar Lista de Certificados"): 
-            carregar_solicitacoes_certificados.clear()
-            st.rerun()
-    else: st.info("Nenhum pedido encontrado.")
-
-def exibir_aba_notas(is_admin=False):
-    st.subheader("🧾 Solicitação de Nota Fiscal (PDF)")
-    st.markdown("Digite o número da Nota Fiscal para receber o PDF por e-mail. **Atenção:** Por segurança, o sistema só enviará notas que pertençam à sua carteira de clientes.")
-    with st.form("form_notas"):
-        col_n1, col_n2, col_n3 = st.columns([1, 1, 1])
-        with col_n1: 
-            # MUDANÇA: Adicionado SAO PAULO
-            filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
-        with col_n2: nf_input = st.text_input("Número da NF (Ex: 71591):")
-        with col_n3: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_nf")
-        if st.form_submit_button("Solicitar NF", type="primary"):
-            if not nf_input: st.warning("Digite o número da nota.")
-            elif not email_input: st.warning("Preencha o e-mail.")
-            else:
-                # MUDANÇA: Lógica de limpeza (strip e remove zeros a esquerda)
-                nf_limpa = nf_input.strip().lstrip('0')
-                if salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_limpa, filial_input): 
-                    st.success(f"Solicitação da NF **{nf_limpa}** ({filial_input}) enviada!")
-    st.divider()
-    if is_admin: st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
-    else: st.markdown("### 📜 Meus Pedidos de Notas")
-    df_notas = carregar_solicitacoes_notas()
-    if not df_notas.empty and not is_admin:
-        user_email = st.session_state.get('usuario_email', '')
-        if 'Email' in df_notas.columns: df_notas = df_notas[df_notas['Email'].str.lower() == user_email.lower()]
-    if not df_notas.empty:
-        st.dataframe(df_notas, use_container_width=True, column_config={"NF": st.column_config.TextColumn("NF")})
-        if st.button("Atualizar Lista de Notas"): 
-            carregar_solicitacoes_notas.clear()
-            st.rerun()
-    else: st.info("Nenhum pedido encontrado.")
-
-# --- SESSÃO ---
+# SESSÃO
 if 'logado' not in st.session_state:
     st.session_state['logado'] = False
     st.session_state['usuario_nome'] = ""
@@ -995,7 +289,7 @@ if 'logado' not in st.session_state:
     st.session_state['usuario_tipo'] = ""
 if 'fazendo_cadastro' not in st.session_state: st.session_state['fazendo_cadastro'] = False
 
-# --- LOGIN ---
+# --- TELA DE LOGIN ---
 if not st.session_state['logado']:
     if st.session_state['fazendo_cadastro']:
         st.title("📝 Solicitação de Acesso")
@@ -1004,12 +298,13 @@ if not st.session_state['logado']:
             email = st.text_input("E-mail")
             login = st.text_input("Crie um Login")
             senha = st.text_input("Crie uma Senha", type="password")
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("Enviar Solicitação", type="primary", use_container_width=True):
-                if nome and email and login and senha:
-                    if salvar_nova_solicitacao(nome, email, login, senha): st.success("Solicitação enviada!")
-                else: st.warning("Preencha tudo.")
-            if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
+            if st.form_submit_button("Enviar Solicitação"):
+                if salvar_nova_solicitacao(nome, email, login, senha):
+                    st.success("Solicitação enviada!")
+                    st.session_state['fazendo_cadastro'] = False
+                    time.sleep(1)
+                    st.rerun()
+            if st.form_submit_button("Voltar"): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
         st.title("🔒 Login - Painel Dox")
         c1, c2, c3 = st.columns([1, 1, 2])
@@ -1017,96 +312,176 @@ if not st.session_state['logado']:
             u = st.text_input("Login").strip()
             s = st.text_input("Senha", type="password").strip()
             if st.button("Acessar", type="primary"):
-                # Agora usa a função com cache e retry logic
-                df = carregar_usuarios()
-                
-                if df.empty:
-                    # Se mesmo com 5 tentativas falhar, aí sim mostra erro
-                    st.error("Falha temporária de conexão com o Banco de Dados. Por favor, tente novamente em alguns segundos.")
-                elif 'Login' not in df.columns or 'Senha' not in df.columns:
-                    st.error("Erro técnico na validação do login. Contate o suporte.")
-                else:
-                    try:
+                with st.spinner("Autenticando..."):
+                    df = carregar_usuarios()
+                    if not df.empty and 'Login' in df.columns and 'Senha' in df.columns:
                         user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
                         if not user.empty:
                             d = user.iloc[0]
-                            st.session_state.update({'logado': True, 'usuario_nome': d['Nome Vendedor'].split()[0], 'usuario_filtro': d['Nome Vendedor'], 'usuario_email': d.get('Email', ''), 'usuario_tipo': d['Tipo']})
+                            st.session_state.update({
+                                'logado': True, 
+                                'usuario_nome': d['Nome Vendedor'].split()[0], 
+                                'usuario_filtro': d['Nome Vendedor'], 
+                                'usuario_email': d.get('Email', ''), 
+                                'usuario_tipo': d['Tipo']
+                            })
                             registrar_acesso(u, d['Nome Vendedor'])
                             st.rerun()
-                        else: st.error("Dados incorretos.")
-                    except Exception as e:
-                        st.error("Erro ao processar login. Tente novamente.")
-            st.markdown("---")
+                        else: st.error("Login ou senha incorretos.")
+                    else: st.error("Erro de conexão. Tente novamente.")
             if st.button("Solicitar Acesso"): st.session_state['fazendo_cadastro'] = True; st.rerun()
+
 else:
+    # --- ÁREA LOGADA ---
     with st.sidebar:
-        st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
-        agora = datetime.now(FUSO_BR)
-        dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
-        meses = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
-        texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
-        st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
-        st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
-        if st.button("Sair"): st.session_state.update({'logado': False, 'usuario_nome': ""}); st.rerun()
+        st.write(f"Olá, **{st.session_state['usuario_nome']}**")
+        if st.button("Sair"): 
+            st.session_state.update({'logado': False})
+            st.rerun()
         st.divider()
-        if st.button("🔄 Atualizar Dados"): 
+        if st.button("🔄 Forçar Atualização"): 
             st.cache_data.clear()
             st.rerun()
-        
-        # --- BLOCO: FATURAMENTO DO VENDEDOR (VISÍVEL APENAS PARA VENDEDOR) ---
-        if st.session_state['usuario_tipo'].lower() == "vendedor":
-            st.divider()
-            
-            df_fat_vend = carregar_faturamento_vendedores()
-            
-            if not df_fat_vend.empty and 'VENDEDOR' in df_fat_vend.columns and 'DATA_DT' in df_fat_vend.columns:
-                usuario_atual = st.session_state['usuario_filtro']
-                
-                # Filtro Mês/Ano Corrente
-                df_mes = df_fat_vend[
-                    (df_fat_vend['DATA_DT'].dt.month == agora.month) & 
-                    (df_fat_vend['DATA_DT'].dt.year == agora.year)
-                ]
-                
-                # Filtro Usuário (Lógica de "Contém")
-                df_mes['VENDEDOR_CLEAN'] = df_mes['VENDEDOR'].astype(str).str.upper().str.strip()
-                user_clean = str(usuario_atual).upper().strip()
-                
-                df_user = df_mes[df_mes['VENDEDOR_CLEAN'].str.contains(user_clean, regex=False, na=False)]
-                
-                total_tons = df_user['TONS'].sum()
-                
-                st.markdown(f"### 🎯 Seu Desempenho")
-                st.caption(f"Volume Faturado em {meses[agora.month]}:")
-                st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
+    # Carrega dados globais
+    df_sol, df_fotos, df_cert, df_notas, df_logs = carregar_solicitacoes_geral()
+    df_credito, df_carteira_cli, df_titulos = carregar_dados_credito_geral()
+    
+    # --- ABAS ---
+    # Definição das abas conforme perfil
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_credito()
-        with a3: exibir_aba_fotos(True) # ADMIN COM ACESSO TOTAL
-        with a4: st.dataframe(carregar_solicitacoes(), use_container_width=True)
-        with a5: exibir_aba_certificados(True)
-        with a6: exibir_aba_notas(True) 
-        with a7: st.dataframe(carregar_logs_acessos(), use_container_width=True)
-        with a8: exibir_aba_faturamento()
-        with a9: exibir_aba_producao()
-        
+        tabs = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
     elif st.session_state['usuario_tipo'].lower() == "master":
-        a1, a2, a3, a4, a5, a6, a7 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_credito()
-        with a3: exibir_aba_fotos(False) # VISÃO NORMAL
-        with a4: exibir_aba_certificados(False) 
-        with a5: exibir_aba_notas(False)        
-        with a6: exibir_aba_faturamento()
-        with a7: exibir_aba_producao()
-        
+        tabs = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
     else:
-        # Vendedores e Gerentes Padrão - ABA FOTOS ADICIONADA
-        a1, a2, a3, a4, a5 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_credito()
-        with a3: exibir_aba_fotos(False) # VISÃO NORMAL
-        with a4: exibir_aba_certificados(False)
-        with a5: exibir_aba_notas(False)
+        tabs = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+
+    # --- ABA: CARTEIRA DE PEDIDOS ---
+    with tabs[0]:
+        df_total = carregar_pedidos_multilojas()
+        if not df_total.empty:
+            texto_busca = st.text_input("🔍 Buscar Pedido (Cliente, Produto...):")
+            
+            # Filtro por Filial e Vendedor (Lógica mantida do original)
+            filtro_filial = st.selectbox("Filial:", ["Todas", "PINHEIRAL", "SJ BICAS"])
+            if filtro_filial != "Todas": df_total = df_total[df_total["Filial_Origem"] == filtro_filial]
+            
+            # Filtro por Usuário
+            tipo_user = st.session_state['usuario_tipo'].lower()
+            if tipo_user not in ["admin", "master"]:
+                 df_total = df_total[df_total["Vendedor Correto"].astype(str).str.contains(st.session_state['usuario_filtro'], case=False, na=False)]
+
+            if texto_busca:
+                mask = df_total.astype(str).apply(lambda x: x.str.contains(texto_busca, case=False, na=False)).any(axis=1)
+                df_total = df_total[mask]
+
+            st.dataframe(df_total, hide_index=True, use_container_width=True)
+        else:
+            st.info("Nenhum pedido encontrado ou carregando...")
+
+    # --- ABA: CRÉDITO ---
+    with tabs[1]:
+        st.subheader("Painel de Crédito")
+        if not df_credito.empty:
+            busca_cred = st.text_input("🔍 Buscar Cliente:")
+            df_show = df_credito.copy()
+            if busca_cred:
+                mask = df_show.astype(str).apply(lambda x: x.str.contains(busca_cred, case=False, na=False)).any(axis=1)
+                df_show = df_show[mask]
+            st.dataframe(df_show, hide_index=True, use_container_width=True)
+        else: st.info("Dados de crédito indisponíveis.")
+
+    # --- ABA: FOTOS ---
+    idx_foto = 2
+    with tabs[idx_foto]:
+        st.subheader("Solicitação de Fotos")
+        with st.form("form_foto"):
+            lote = st.text_input("Lote / Bobina")
+            email = st.text_input("E-mail", value=st.session_state['usuario_email'])
+            if st.form_submit_button("Solicitar"):
+                agora = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
+                dados = {
+                    "Data": agora, 
+                    "Vendedor": st.session_state['usuario_nome'], 
+                    "Email": email, 
+                    "Lote": f"'{lote}", 
+                    "Status": "Pendente"
+                }
+                if salvar_generico_solicitacao("Solicitacoes_Fotos", dados):
+                    st.success("Solicitado!")
+
+        if not df_fotos.empty:
+            st.markdown("##### Histórico")
+            st.dataframe(df_fotos, use_container_width=True)
+
+    # --- ABA: CERTIFICADOS ---
+    idx_cert = 3 if st.session_state['usuario_tipo'].lower() != "admin" else 4
+    with tabs[idx_cert]:
+        st.subheader("Solicitação de Certificados")
+        with st.form("form_cert"):
+            lote = st.text_input("Lote / Bobina")
+            email = st.text_input("E-mail", value=st.session_state['usuario_email'])
+            if st.form_submit_button("Solicitar"):
+                agora = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
+                dados = {
+                    "Data": agora, "Vendedor": st.session_state['usuario_nome'], 
+                    "Email": email, "Lote": f"'{lote}", "Status": "Pendente"
+                }
+                if salvar_generico_solicitacao("Solicitacoes_Certificados", dados): st.success("Solicitado!")
+        
+        if not df_cert.empty:
+            st.dataframe(df_cert, use_container_width=True)
+
+    # --- ABA: NOTAS ---
+    idx_nota = 4 if st.session_state['usuario_tipo'].lower() != "admin" else 5
+    with tabs[idx_nota]:
+        st.subheader("Solicitação de NF")
+        with st.form("form_nf"):
+            nf = st.text_input("Número NF")
+            filial = st.selectbox("Filial", ["PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
+            email = st.text_input("E-mail", value=st.session_state['usuario_email'])
+            if st.form_submit_button("Solicitar"):
+                agora = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
+                dados = {
+                    "Data": agora, "Vendedor": st.session_state['usuario_nome'], 
+                    "Email": email, "NF": f"'{nf}", "Filial": filial, "Status": "Pendente"
+                }
+                if salvar_generico_solicitacao("Solicitacoes_Notas", dados): st.success("Solicitado!")
+        
+        if not df_notas.empty:
+            st.dataframe(df_notas, use_container_width=True)
+
+    # --- PERFIL ADMIN / MASTER (Faturamento e Produção) ---
+    if st.session_state['usuario_tipo'].lower() in ["admin", "master"]:
+        # Carrega dados específicos
+        df_fat_dir, df_fat_transf, df_fat_vend, df_meta_fat = carregar_dados_faturamento_geral()
+        df_prod, df_meta_prod = carregar_dados_producao_completo()
+
+        # Índices variam se for Admin ou Master
+        idx_fat = 7 if st.session_state['usuario_tipo'].lower() == "admin" else 5
+        idx_prod = 8 if st.session_state['usuario_tipo'].lower() == "admin" else 6
+
+        # ABA FATURAMENTO
+        with tabs[idx_fat]:
+            st.subheader("📊 Faturamento")
+            if not df_fat_dir.empty:
+                # Exemplo de gráfico simples
+                st.write("Dados Carregados com Sucesso via gspread.")
+                st.bar_chart(df_fat_dir, x="DATA_DT", y="TONS")
+            else:
+                st.warning("Sem dados de faturamento.")
+
+        # ABA PRODUÇÃO
+        with tabs[idx_prod]:
+            st.subheader("🏭 Produção")
+            if not df_prod.empty:
+                st.dataframe(df_prod, use_container_width=True)
+            else:
+                st.warning("Sem dados de produção.")
+
+    # --- PERFIL ADMIN (Acessos e Logs) ---
+    if st.session_state['usuario_tipo'].lower() == "admin":
+        with tabs[3]: # Acessos (solicitações pendentes)
+            st.dataframe(df_sol, use_container_width=True)
+        with tabs[6]: # Logs
+            st.dataframe(df_logs, use_container_width=True)
