@@ -17,7 +17,7 @@ st.set_page_config(
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
-# --- USANDO URLS COMPLETAS ---
+# --- USANDO URLS COMPLETAS PARA EVITAR ERRO DE LEITURA ---
 URL_SISTEMA = "https://docs.google.com/spreadsheets/d/1jODOp_SJUKWp1UaSmW_xJgkkyqDUexa56_P5QScAv3s/edit"
 URL_PINHEIRAL = "https://docs.google.com/spreadsheets/d/1DxTnEEh9VgbFyjqxYafdJ0-puSAIHYhZ6lo5wZTKDeg/edit"
 URL_BICAS = "https://docs.google.com/spreadsheets/d/1zKZK0fpYl-UtHcYmFkZJtOO17fTqBWaJ39V2UOukack/edit"
@@ -96,6 +96,22 @@ def carregar_dados_faturamento_direto():
 
 def carregar_dados_faturamento_transf():
     return ler_dados_nuvem_generico("Dados_Faturamento_Transf", URL_SISTEMA)
+
+# --- NOVA FUNÇÃO PARA LER FATURAMENTO POR VENDEDOR ---
+@st.cache_data(ttl="10m", show_spinner=False)
+def carregar_faturamento_vendedores():
+    df = ler_com_retry(URL_SISTEMA, "Dados_Fat_Vendedores")
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.upper()
+        # Tratamento numérico
+        if 'TONS' in df.columns:
+            df['TONS'] = df['TONS'].astype(str).str.replace(',', '.')
+            df['TONS'] = pd.to_numeric(df['TONS'], errors='coerce').fillna(0)
+        # Tratamento data
+        if 'DATA_EMISSAO' in df.columns:
+            df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
+        return df
+    return pd.DataFrame()
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_faturamento():
@@ -1036,6 +1052,34 @@ else:
         if st.button("🔄 Atualizar Dados"): 
             st.cache_data.clear()
             st.rerun()
+        
+        # --- NOVO BLOCO: FATURAMENTO DO VENDEDOR ---
+        st.divider()
+        
+        df_fat_vend = carregar_faturamento_vendedores()
+        
+        if not df_fat_vend.empty and 'VENDEDOR' in df_fat_vend.columns and 'DATA_DT' in df_fat_vend.columns:
+            usuario_atual = st.session_state['usuario_filtro']
+            
+            # Filtro Mês/Ano Corrente
+            df_mes = df_fat_vend[
+                (df_fat_vend['DATA_DT'].dt.month == agora.month) & 
+                (df_fat_vend['DATA_DT'].dt.year == agora.year)
+            ]
+            
+            # Filtro Usuário (Lógica de "Contém")
+            # Padroniza para maiúsculo e remove espaços extras
+            df_mes['VENDEDOR_CLEAN'] = df_mes['VENDEDOR'].astype(str).str.upper().str.strip()
+            user_clean = str(usuario_atual).upper().strip()
+            
+            df_user = df_mes[df_mes['VENDEDOR_CLEAN'].str.contains(user_clean, regex=False, na=False)]
+            
+            total_tons = df_user['TONS'].sum()
+            
+            st.markdown(f"### 🎯 Seu Desempenho")
+            st.caption(f"Volume Faturado em {meses[agora.month]}:")
+            # Exibe o valor formatado
+            st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     if st.session_state['usuario_tipo'].lower() == "admin":
         a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
