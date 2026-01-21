@@ -83,29 +83,34 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
-# FUNÇÃO DE CORREÇÃO NÚMERICA (CORREÇÃO DO ERRO 165 MILHÕES)
+# FUNÇÕES DE FORMATAÇÃO E CORREÇÃO
 # ==============================================================================
 
 def converte_numero_seguro(valor):
-    """
-    Converte string para float detectando se é formato BR (vírgula) ou US (ponto).
-    Evita o erro de transformar 479.2 em 4792.
-    """
+    """Converte string para float detectando se é formato BR ou US."""
     s = str(valor).strip()
     if not s or s.lower() == 'nan' or s.lower() == 'none': return 0.0
-    
-    # Se tem vírgula, assume que é formato BR (ex: 1.000,50 ou 10,5)
     if ',' in s:
-        s = s.replace('.', '') # Remove ponto de milhar
-        s = s.replace(',', '.') # Troca vírgula decimal por ponto
-    
-    # Se NÃO tem vírgula, mas tem ponto (ex: 479.2), assume formato US/Python
-    # Não fazemos replace nesse caso para não perder o decimal
-    
+        s = s.replace('.', '').replace(',', '.') 
     try:
         return float(s)
     except:
         return 0.0
+
+def formatar_br_decimal(valor, casas=3):
+    """
+    Formata um número float para o padrão brasileiro (1.000,000).
+    Entrada: 1234.56 -> Saída: '1.234,560'
+    """
+    try:
+        v = float(valor)
+        # Formata com padrão US primeiro (vírgula separando milhar, ponto separando decimal)
+        # Ex: {:,.3f} transforma 1234.56 em "1,234.560"
+        s = "{:,.{}f}".format(v, casas)
+        # Troca os sinais para o padrão BR
+        return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+    except:
+        return str(valor)
 
 # ==============================================================================
 # CARREGAMENTO DE DADOS (COM CACHE)
@@ -113,7 +118,6 @@ def converte_numero_seguro(valor):
 
 @st.cache_data(ttl="30m", show_spinner=False)
 def carregar_usuarios():
-    # Login resiliente (10 tentativas)
     df_users = ler_com_retry(URL_SISTEMA, "Usuarios", tentativas=10, espera=2)
     if not df_users.empty: return df_users.astype(str)
     return pd.DataFrame()
@@ -124,7 +128,6 @@ def ler_dados_nuvem_generico(aba, url_planilha):
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'TONS' in df.columns:
-            # Aplica a função segura
             df['TONS'] = df['TONS'].apply(converte_numero_seguro)
         if 'DATA_EMISSAO' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
@@ -146,16 +149,38 @@ def carregar_faturamento_vendedores():
         return df
     return pd.DataFrame()
 
-# --- NOVA FUNÇÃO DE CARREGAMENTO DO ESTOQUE ---
+# --- CARREGAMENTO E TRATAMENTO DO ESTOQUE ---
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_estoque():
     df = ler_com_retry(URL_SISTEMA, "Dados_Estoque")
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
-        # Converte colunas numéricas essenciais
-        for col in ['QTDE', 'EMPENHADO', 'DISPONIVEL', 'ESPES', 'LARGURA']:
+        
+        # 1. Tratamento de Datas para cálculo de DIAS
+        # A coluna deve se chamar 'DIAS.ESTOQUE' conforme sua query
+        if 'DIAS.ESTOQUE' in df.columns:
+            try:
+                # Converte para datetime
+                df['DATA_ENTRADA'] = pd.to_datetime(df['DIAS.ESTOQUE'], dayfirst=True, errors='coerce')
+                # Calcula a diferença para hoje
+                agora = datetime.now()
+                df['DIAS'] = (agora - df['DATA_ENTRADA']).dt.days
+                df['DIAS'] = df['DIAS'].fillna(0).astype(int)
+            except:
+                df['DIAS'] = 0
+        else:
+            df['DIAS'] = 0
+
+        # 2. Tratamento Númerico Básico (para poder filtrar depois)
+        cols_float = ['QTDE', 'EMPENHADO', 'DISPONIVEL', 'ESPES', 'LARGURA', 'COMPRIMENTO']
+        for col in cols_float:
             if col in df.columns:
                 df[col] = df[col].apply(converte_numero_seguro)
+        
+        # 3. Regra da Espessura (Dividir por 100)
+        if 'ESPES' in df.columns:
+            df['ESPES'] = df['ESPES'] / 100.0
+
         return df
     return pd.DataFrame()
 
@@ -369,6 +394,7 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     except: return False
 
 def formatar_peso_brasileiro(valor):
+    """Usado para formatar pesos genéricos"""
     try:
         if pd.isna(valor) or valor == "": return "0"
         texto = f"{float(valor):.3f}"
@@ -556,7 +582,7 @@ def exibir_aba_producao():
         st.warning("Nenhum dado na planilha de produção.")
     else: st.info("Clique no botão para carregar.")
 
-# --- NOVA ABA DE ESTOQUE ---
+# --- NOVA ABA DE ESTOQUE (COM TODAS AS REGRAS) ---
 def exibir_aba_estoque():
     st.subheader("📦 Consulta de Estoque Disponível")
     
@@ -581,10 +607,10 @@ def exibir_aba_estoque():
         filtro_grupo = st.multiselect("Filtrar por Grupo:", grupos)
         
     with col2:
-        # Filtro de Espessura (se existir)
+        # Filtro de Espessura (agora já está dividida por 100)
         if 'ESPES' in df_estoque.columns:
             espessuras = sorted(df_estoque['ESPES'].unique().tolist())
-            filtro_espes = st.multiselect("Filtrar por Espessura:", espessuras)
+            filtro_espes = st.multiselect("Filtrar por Espessura (mm):", espessuras)
         else: filtro_espes = []
         
     with col3:
@@ -607,27 +633,58 @@ def exibir_aba_estoque():
     # Exibição
     st.markdown(f"**Itens encontrados:** {len(df_filtrado)}")
     
-    # Seleção de colunas para exibição (Ocultando dados sensíveis ou técnicos)
-    colunas_visiveis = [
-        "FILIAL", "ARMAZEM", "PRODUTO", "LOTE", 
-        "ESPES", "LARGURA", "COMPRIMENTO", 
-        "DISPONIVEL", "UNIDADE"
-    ]
-    # Filtra apenas as que existem no dataframe
-    cols_finais = [c for c in colunas_visiveis if c in df_filtrado.columns]
+    # ------------------------------------------------------------------
+    # PREPARAÇÃO PARA EXIBIÇÃO VISUAL (TEXTO FORMATADO)
+    # ------------------------------------------------------------------
     
-    # Estilização: Destacar Disponível
+    # Cria um DF para exibição, convertendo os números para String formatada
+    df_show = df_filtrado.copy()
+    
+    # 1. Renomeia Coluna de Produto
+    if 'PRODUTO' in df_show.columns:
+        df_show.rename(columns={'PRODUTO': 'DESCRIÇÃO DO PRODUTO'}, inplace=True)
+
+    # 2. Formata Espessura (2 casas, vírgula)
+    if 'ESPES' in df_show.columns:
+        df_show['ESPES'] = df_show['ESPES'].apply(lambda x: formatar_br_decimal(x, 2))
+
+    # 3. Formata Quantidades (3 casas, vírgula) - QTDE, EMPENHADO, DISPONIVEL
+    for col in ['QTDE', 'EMPENHADO', 'DISPONIVEL']:
+        if col in df_show.columns:
+            df_show[col] = df_show[col].apply(lambda x: formatar_br_decimal(x, 3))
+
+    # 4. Formata Comprimento (Sem decimal .0, remove vírgula se houver)
+    if 'COMPRIMENTO' in df_show.columns:
+        df_show['COMPRIMENTO'] = df_show['COMPRIMENTO'].apply(lambda x: str(int(x)) if x > 0 else "0")
+
+    # Seleção e Ordem das colunas
+    colunas_desejadas = [
+        "DIAS",
+        "FILIAL", 
+        "ARMAZEM", 
+        "DESCRIÇÃO DO PRODUTO", 
+        "LOTE", 
+        "ESPES", 
+        "LARGURA", 
+        "COMPRIMENTO", 
+        "QTDE",
+        "EMPENHADO",
+        "DISPONIVEL"
+    ]
+    # Filtra apenas as que existem no dataframe para evitar erro
+    cols_finais = [c for c in colunas_desejadas if c in df_show.columns]
+    
+    # Exibe a tabela compacta
     st.dataframe(
-        df_filtrado[cols_finais],
+        df_show[cols_finais],
         hide_index=True,
-        use_container_width=True,
+        use_container_width=True, # Tenta ajustar largura
         column_config={
-            "DISPONIVEL": st.column_config.NumberColumn(
-                "Saldo Disponível",
-                help="Quantidade Atual - Empenhada",
-                format="%.2f"
-            ),
-            "PRODUTO": st.column_config.TextColumn("Descrição do Produto", width="medium"),
+            "DESCRIÇÃO DO PRODUTO": st.column_config.TextColumn("Descrição", width="large"), # Alarga a descrição
+            "DISPONIVEL": st.column_config.TextColumn("Disponível"), # Mostra como texto formatado
+            "QTDE": st.column_config.TextColumn("Qtde"),
+            "EMPENHADO": st.column_config.TextColumn("Empenhado"),
+            "DIAS": st.column_config.NumberColumn("Dias", help="Dias em estoque"),
         }
     )
 
