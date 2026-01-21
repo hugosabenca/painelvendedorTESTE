@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 import altair as alt
 import time
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode # <--- NOVO IMPORT
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E URLS
@@ -598,7 +598,7 @@ def exibir_aba_estoque():
         st.info("Nenhum dado de estoque carregado.")
         return
 
-    # FILTROS SOLICITADOS (Somente Filial)
+    # FILTROS
     lista_filiais = ["Todas"] + sorted(df_estoque['FILIAL'].unique().tolist())
     
     c1, c2 = st.columns(2)
@@ -607,12 +607,23 @@ def exibir_aba_estoque():
     with c2:
         busca = st.text_input("Buscar (aperte enter após digitar):")
 
+    # CHECKBOX DE FILTRO DE DISPONIBILIDADE
+    somente_disp = st.checkbox("Somente Disponível", value=False)
+
     # APLICAÇÃO DOS FILTROS
     df_filtrado = df_estoque.copy()
     
+    # 1. Filtro de Saldo (Matemático, antes de virar texto)
+    if somente_disp:
+        if 'DISPONIVEL' in df_filtrado.columns:
+            # Filtra onde DISPONIVEL > 0.001 (para evitar float bugs de 0.0000001)
+            df_filtrado = df_filtrado[df_filtrado['DISPONIVEL'] > 0.001]
+
+    # 2. Filtro de Filial
     if filial_sel != "Todas":
         df_filtrado = df_filtrado[df_filtrado['FILIAL'] == filial_sel]
         
+    # 3. Filtro de Busca
     if busca:
         mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busca, case=False, na=False)).any(axis=1)
         df_filtrado = df_filtrado[mask]
@@ -623,39 +634,47 @@ def exibir_aba_estoque():
     # PREPARAÇÃO PARA EXIBIÇÃO VISUAL (TEXTO FORMATADO)
     # ------------------------------------------------------------------
     
-    # Cria um DF para exibição, convertendo os números para String formatada
     df_show = df_filtrado.copy()
     
-    # 1. Renomeia Coluna de Produto
-    if 'PRODUTO' in df_show.columns:
-        df_show.rename(columns={'PRODUTO': 'DESCRIÇÃO DO PRODUTO'}, inplace=True)
+    # 1. Renomeia Colunas (Mapeamento Solicitado)
+    mapa_renomeacao = {
+        'PRODUTO': 'DESCRIÇÃO DO PRODUTO',
+        'ARMAZEM': 'ARM',
+        'LARGURA': 'LARG',
+        'COMPRIMENTO': 'COMP',
+        'EMPENHADO': 'EMP',
+        'DISPONIVEL': 'DISP'
+    }
+    df_show.rename(columns=mapa_renomeacao, inplace=True)
 
     # 2. Formata Espessura (2 casas, vírgula)
     if 'ESPES' in df_show.columns:
         df_show['ESPES'] = df_show['ESPES'].apply(lambda x: formatar_br_decimal(x, 2))
 
-    # 3. Formata Quantidades (3 casas, vírgula) - QTDE, EMPENHADO, DISPONIVEL
-    for col in ['QTDE', 'EMPENHADO', 'DISPONIVEL']:
+    # 3. Formata Quantidades (3 casas, vírgula)
+    # Note que agora usamos os nomes NOVOS (EMP, DISP)
+    cols_qtd = ['QTDE', 'EMP', 'DISP']
+    for col in cols_qtd:
         if col in df_show.columns:
             df_show[col] = df_show[col].apply(lambda x: formatar_br_decimal(x, 3))
 
     # 4. Formata Comprimento (Sem decimal .0, remove vírgula se houver)
-    if 'COMPRIMENTO' in df_show.columns:
-        df_show['COMPRIMENTO'] = df_show['COMPRIMENTO'].apply(lambda x: str(int(x)) if x > 0 else "0")
+    if 'COMP' in df_show.columns:
+        df_show['COMP'] = df_show['COMP'].apply(lambda x: str(int(x)) if x > 0 else "0")
 
-    # Seleção e Ordem das colunas
+    # Seleção e Ordem das colunas (Usando os novos nomes)
     colunas_desejadas = [
         "DIAS",
         "FILIAL", 
-        "ARMAZEM", 
+        "ARM", 
         "DESCRIÇÃO DO PRODUTO", 
         "LOTE", 
         "ESPES", 
-        "LARGURA", 
-        "COMPRIMENTO", 
+        "LARG", 
+        "COMP", 
         "QTDE",
-        "EMPENHADO",
-        "DISPONIVEL"
+        "EMP",
+        "DISP"
     ]
     # Filtra apenas as que existem no dataframe para evitar erro
     cols_finais = [c for c in colunas_desejadas if c in df_show.columns]
@@ -671,34 +690,32 @@ def exibir_aba_estoque():
         resizable=True, 
         filterable=True, 
         sortable=True,
-        # Centraliza tudo por padrão, exceto Descrição que fica à esquerda
         cellStyle={'textAlign': 'center'}
     )
     
-    # Configurações Específicas de Coluna
-    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=300, cellStyle={'textAlign': 'left'}) # Descrição Larga
-    gb.configure_column("DIAS", maxWidth=80)
-    gb.configure_column("FILIAL", minWidth=120)
-    gb.configure_column("ARMAZEM", maxWidth=100)
-    gb.configure_column("LOTE", minWidth=110)
-    gb.configure_column("ESPES", maxWidth=90)
-    gb.configure_column("LARGURA", maxWidth=90)
-    gb.configure_column("COMPRIMENTO", maxWidth=100)
+    # Configurações Específicas de Coluna (Larguras ajustadas para compactação)
+    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=250, cellStyle={'textAlign': 'left'}) # Flexível
+    gb.configure_column("DIAS", maxWidth=70)
+    gb.configure_column("FILIAL", minWidth=100)
+    gb.configure_column("ARM", maxWidth=70)
+    gb.configure_column("LOTE", minWidth=100)
+    gb.configure_column("ESPES", maxWidth=80)
+    gb.configure_column("LARG", maxWidth=80)
+    gb.configure_column("COMP", maxWidth=80)
+    gb.configure_column("QTDE", maxWidth=90)
+    gb.configure_column("EMP", maxWidth=90)
+    gb.configure_column("DISP", minWidth=90, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'}) # Destaque Azul Escuro
     
-    # Seleção de linha (opcional, deixa bonito ao clicar)
     gb.configure_selection('single', use_checkbox=False)
-    
     gridOptions = gb.build()
     
-    # Renderiza a Tabela
-    # fit_columns_on_grid_load=True TENTA fazer tudo caber na largura da tela
     AgGrid(
         df_show[cols_finais],
         gridOptions=gridOptions,
-        height=500, # Altura fixa da tabela (scroll vertical)
+        height=500,
         width='100%',
-        fit_columns_on_grid_load=True, # <--- O SEGREDO PARA NÃO ROLAR PRO LADO
-        theme='streamlit', # Tema clean
+        fit_columns_on_grid_load=True, # Tenta encaixar na tela
+        theme='streamlit',
         update_mode=GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True
     )
