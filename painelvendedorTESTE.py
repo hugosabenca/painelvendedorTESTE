@@ -140,10 +140,22 @@ def carregar_faturamento_vendedores():
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'TONS' in df.columns:
-            # Aplica a função segura
             df['TONS'] = df['TONS'].apply(converte_numero_seguro)
         if 'DATA_EMISSAO' in df.columns:
             df['DATA_DT'] = pd.to_datetime(df['DATA_EMISSAO'], dayfirst=True, errors='coerce')
+        return df
+    return pd.DataFrame()
+
+# --- NOVA FUNÇÃO DE CARREGAMENTO DO ESTOQUE ---
+@st.cache_data(ttl="10m", show_spinner=False)
+def carregar_estoque():
+    df = ler_com_retry(URL_SISTEMA, "Dados_Estoque")
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.upper()
+        # Converte colunas numéricas essenciais
+        for col in ['QTDE', 'EMPENHADO', 'DISPONIVEL', 'ESPES', 'LARGURA']:
+            if col in df.columns:
+                df[col] = df[col].apply(converte_numero_seguro)
         return df
     return pd.DataFrame()
 
@@ -543,6 +555,82 @@ def exibir_aba_producao():
     elif 'dados_producao' in st.session_state and st.session_state['dados_producao'].empty:
         st.warning("Nenhum dado na planilha de produção.")
     else: st.info("Clique no botão para carregar.")
+
+# --- NOVA ABA DE ESTOQUE ---
+def exibir_aba_estoque():
+    st.subheader("📦 Consulta de Estoque Disponível")
+    
+    col_btn, _ = st.columns([1, 4])
+    with col_btn:
+        if st.button("🔄 Atualizar Estoque"):
+            carregar_estoque.clear()
+            st.rerun()
+            
+    df_estoque = carregar_estoque()
+    
+    if df_estoque.empty:
+        st.info("Nenhum dado de estoque carregado.")
+        return
+
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Filtro de Grupo
+        grupos = sorted(df_estoque['GRUPO'].unique().tolist())
+        filtro_grupo = st.multiselect("Filtrar por Grupo:", grupos)
+        
+    with col2:
+        # Filtro de Espessura (se existir)
+        if 'ESPES' in df_estoque.columns:
+            espessuras = sorted(df_estoque['ESPES'].unique().tolist())
+            filtro_espes = st.multiselect("Filtrar por Espessura:", espessuras)
+        else: filtro_espes = []
+        
+    with col3:
+        # Busca Livre
+        busca = st.text_input("Buscar (Produto, Lote, Local...):")
+
+    # Aplicação dos Filtros
+    df_filtrado = df_estoque.copy()
+    
+    if filtro_grupo:
+        df_filtrado = df_filtrado[df_filtrado['GRUPO'].isin(filtro_grupo)]
+        
+    if filtro_espes:
+        df_filtrado = df_filtrado[df_filtrado['ESPES'].isin(filtro_espes)]
+        
+    if busca:
+        mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busca, case=False, na=False)).any(axis=1)
+        df_filtrado = df_filtrado[mask]
+
+    # Exibição
+    st.markdown(f"**Itens encontrados:** {len(df_filtrado)}")
+    
+    # Seleção de colunas para exibição (Ocultando dados sensíveis ou técnicos)
+    colunas_visiveis = [
+        "FILIAL", "ARMAZEM", "PRODUTO", "LOTE", 
+        "ESPES", "LARGURA", "COMPRIMENTO", 
+        "DISPONIVEL", "UNIDADE"
+    ]
+    # Filtra apenas as que existem no dataframe
+    cols_finais = [c for c in colunas_visiveis if c in df_filtrado.columns]
+    
+    # Estilização: Destacar Disponível
+    st.dataframe(
+        df_filtrado[cols_finais],
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "DISPONIVEL": st.column_config.NumberColumn(
+                "Saldo Disponível",
+                help="Quantidade Atual - Empenhada",
+                format="%.2f"
+            ),
+            "PRODUTO": st.column_config.TextColumn("Descrição do Produto", width="medium"),
+        }
+    )
+
 
 def exibir_carteira_pedidos():
     tipo_usuario = st.session_state['usuario_tipo'].lower()
@@ -1067,32 +1155,35 @@ else:
                 st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
+        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
-        with a3: exibir_aba_fotos(True) # ADMIN COM ACESSO TOTAL
-        with a4: st.dataframe(carregar_solicitacoes(), use_container_width=True)
-        with a5: exibir_aba_certificados(True)
-        with a6: exibir_aba_notas(True) 
-        with a7: st.dataframe(carregar_logs_acessos(), use_container_width=True)
-        with a8: exibir_aba_faturamento()
-        with a9: exibir_aba_producao()
+        with a3: exibir_aba_estoque() # <--- NOVA ABA
+        with a4: exibir_aba_fotos(True) # ADMIN COM ACESSO TOTAL
+        with a5: st.dataframe(carregar_solicitacoes(), use_container_width=True)
+        with a6: exibir_aba_certificados(True)
+        with a7: exibir_aba_notas(True) 
+        with a8: st.dataframe(carregar_logs_acessos(), use_container_width=True)
+        with a9: exibir_aba_faturamento()
+        with a10: exibir_aba_producao()
         
     elif st.session_state['usuario_tipo'].lower() == "master":
-        a1, a2, a3, a4, a5, a6, a7 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+        a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
-        with a3: exibir_aba_fotos(False) # VISÃO NORMAL
-        with a4: exibir_aba_certificados(False) 
-        with a5: exibir_aba_notas(False)        
-        with a6: exibir_aba_faturamento()
-        with a7: exibir_aba_producao()
+        with a3: exibir_aba_estoque() # <--- NOVA ABA
+        with a4: exibir_aba_fotos(False) # VISÃO NORMAL
+        with a5: exibir_aba_certificados(False) 
+        with a6: exibir_aba_notas(False)        
+        with a7: exibir_aba_faturamento()
+        with a8: exibir_aba_producao()
         
     else:
-        # Vendedores e Gerentes Padrão - ABA FOTOS ADICIONADA
-        a1, a2, a3, a4, a5 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+        # Vendedores e Gerentes Padrão - ABA ESTOQUE ADICIONADA
+        a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
-        with a3: exibir_aba_fotos(False) # VISÃO NORMAL
-        with a4: exibir_aba_certificados(False)
-        with a5: exibir_aba_notas(False)
+        with a3: exibir_aba_estoque() # <--- NOVA ABA
+        with a4: exibir_aba_fotos(False) # VISÃO NORMAL
+        with a5: exibir_aba_certificados(False)
+        with a6: exibir_aba_notas(False)
