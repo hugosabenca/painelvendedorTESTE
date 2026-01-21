@@ -84,11 +84,41 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
+# FUNÇÕES DE FEEDBACK (NOVO)
+# ==============================================================================
+
+def ja_enviou_feedback(login):
+    """Verifica se o login já existe na aba de Feedback."""
+    df = ler_com_retry(URL_SISTEMA, "Feedback_Vendedores", tentativas=3)
+    if df.empty:
+        return False
+    
+    if 'Login' in df.columns:
+        # Verifica se o login está na lista (remove espaços e poe em minusculo)
+        logins_existentes = df['Login'].astype(str).str.strip().str.lower().tolist()
+        return str(login).strip().lower() in logins_existentes
+    return False
+
+def salvar_feedback(login, nome, satisfacao, menos_usada, sugestao):
+    try:
+        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+        df_novo = pd.DataFrame([{
+            "Data": agora_br,
+            "Login": login,
+            "Nome": nome,
+            "Satisfacao": satisfacao,
+            "Aba_Menos_Usada": menos_usada,
+            "Sugestao": sugestao
+        }])
+        return escrever_no_sheets(URL_SISTEMA, "Feedback_Vendedores", df_novo, modo="append")
+    except:
+        return False
+
+# ==============================================================================
 # FUNÇÕES DE FORMATAÇÃO E CORREÇÃO
 # ==============================================================================
 
 def converte_numero_seguro(valor):
-    """Converte string para float detectando se é formato BR ou US."""
     s = str(valor).strip()
     if not s or s.lower() == 'nan' or s.lower() == 'none': return 0.0
     if ',' in s:
@@ -99,10 +129,6 @@ def converte_numero_seguro(valor):
         return 0.0
 
 def formatar_br_decimal(valor, casas=3):
-    """
-    Formata um número float para o padrão brasileiro (1.000,000).
-    Entrada: 1234.56 -> Saída: '1.234,560'
-    """
     try:
         v = float(valor)
         s = "{:,.{}f}".format(v, casas)
@@ -147,14 +173,11 @@ def carregar_faturamento_vendedores():
         return df
     return pd.DataFrame()
 
-# --- CARREGAMENTO E TRATAMENTO DO ESTOQUE ---
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_estoque():
     df = ler_com_retry(URL_SISTEMA, "Dados_Estoque")
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
-        
-        # 1. Tratamento de Datas para cálculo de DIAS
         if 'DIAS.ESTOQUE' in df.columns:
             try:
                 df['DATA_ENTRADA'] = pd.to_datetime(df['DIAS.ESTOQUE'], dayfirst=True, errors='coerce')
@@ -165,17 +188,12 @@ def carregar_estoque():
                 df['DIAS'] = 0
         else:
             df['DIAS'] = 0
-
-        # 2. Tratamento Númerico Básico
         cols_float = ['QTDE', 'EMPENHADO', 'DISPONIVEL', 'ESPES', 'LARGURA', 'COMPRIMENTO']
         for col in cols_float:
             if col in df.columns:
                 df[col] = df[col].apply(converte_numero_seguro)
-        
-        # 3. Regra da Espessura
         if 'ESPES' in df.columns:
             df['ESPES'] = df['ESPES'] / 100.0
-
         return df
     return pd.DataFrame()
 
@@ -602,7 +620,6 @@ def exibir_aba_estoque():
         busca = st.text_input("Buscar (aperte enter após digitar):")
 
     # CHECKBOX DE FILTRO DE DISPONIBILIDADE
-    # Título principal + Caption abaixo (para fonte menor)
     somente_disp = st.checkbox("Somente Disponível")
     st.caption("(marque para mostrar somente itens que possuem saldo disponível maior que zero)")
 
@@ -686,16 +703,14 @@ def exibir_aba_estoque():
         cellStyle={'textAlign': 'center'}
     )
     
-    # Configurações Específicas de Coluna (Larguras AJUSTADAS PARA EVITAR CORTES)
+    # Configurações Específicas de Coluna (Larguras AJUSTADAS)
     gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=250, cellStyle={'textAlign': 'left'}) 
-    
-    # Aumentei os minWidth para garantir que os cabeçalhos apareçam (DIAS e LARG)
     gb.configure_column("DIAS", minWidth=80, maxWidth=120) 
     gb.configure_column("FILIAL", minWidth=120)
     gb.configure_column("ARM", maxWidth=80)
     gb.configure_column("LOTE", minWidth=110)
     gb.configure_column("ESPES", maxWidth=90)
-    gb.configure_column("LARG", minWidth=90, maxWidth=120) # Aumentado para não cortar "LARG"
+    gb.configure_column("LARG", minWidth=90, maxWidth=120) 
     gb.configure_column("COMP", maxWidth=90)
     gb.configure_column("QTDE", maxWidth=100)
     gb.configure_column("EMP", maxWidth=100)
@@ -1188,7 +1203,14 @@ if not st.session_state['logado']:
                         user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
                         if not user.empty:
                             d = user.iloc[0]
-                            st.session_state.update({'logado': True, 'usuario_nome': d['Nome Vendedor'].split()[0], 'usuario_filtro': d['Nome Vendedor'], 'usuario_email': d.get('Email', ''), 'usuario_tipo': d['Tipo']})
+                            st.session_state.update({
+                                'logado': True, 
+                                'usuario_nome': d['Nome Vendedor'].split()[0], 
+                                'usuario_filtro': d['Nome Vendedor'], 
+                                'usuario_email': d.get('Email', ''), 
+                                'usuario_tipo': d['Tipo'],
+                                'usuario_login': d['Login'] # Salva o login para o feedback
+                            })
                             registrar_acesso(u, d['Nome Vendedor'])
                             st.rerun()
                         else: st.error("Dados incorretos.")
@@ -1197,6 +1219,40 @@ if not st.session_state['logado']:
             st.markdown("---")
             if st.button("Solicitar Acesso"): st.session_state['fazendo_cadastro'] = True; st.rerun()
 else:
+    # --- BLOCO DE FEEDBACK OBRIGATÓRIO (NOVO) ---
+    precisa_votar = False
+    
+    if st.session_state['usuario_tipo'].lower() == "vendedor":
+        # Verifica se já checamos nesta sessão para não ler o sheets toda hora
+        if 'feedback_enviado' not in st.session_state:
+             # Usa o login salvo na sessão
+             login_atual = st.session_state.get('usuario_login', st.session_state['usuario_filtro'])
+             st.session_state['feedback_enviado'] = ja_enviou_feedback(login_atual)
+        
+        if not st.session_state['feedback_enviado']:
+            st.markdown("### 👋 Olá! Antes de prosseguir...")
+            st.info("Para continuarmos evoluindo o Painel Dox, precisamos da sua opinião rápida. É obrigatório, mas leva menos de 1 minuto.")
+            
+            with st.form("form_feedback"):
+                q1 = st.radio("O que tem achado do Painel?", ["Excelente", "Bom", "Regular", "Ruim"], horizontal=True)
+                q2 = st.radio("Qual aba você menos utiliza?", ["Itens Programados", "Crédito", "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais", "Uso todas"])
+                q3 = st.text_area("Alguma sugestão de melhoria? (Opcional)")
+                
+                if st.form_submit_button("Enviar Respostas", type="primary"):
+                    # Salva usando login e nome completo
+                    login_save = st.session_state.get('usuario_login', st.session_state['usuario_filtro'])
+                    nome_save = st.session_state['usuario_filtro']
+                    
+                    if salvar_feedback(login_save, nome_save, q1, q2, q3):
+                        st.session_state['feedback_enviado'] = True
+                        st.success("Obrigado pelo feedback! Carregando o painel...")
+                        time.sleep(1.5)
+                        st.rerun()
+                    else:
+                        st.error("Erro ao salvar. Tente novamente.")
+            
+            st.stop() # Bloqueia o resto da execução até votar
+
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         agora = datetime.now(FUSO_BR)
