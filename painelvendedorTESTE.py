@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 import altair as alt
 import time
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode # <--- NOVO IMPORT
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E URLS
@@ -394,7 +395,6 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
     except: return False
 
 def formatar_peso_brasileiro(valor):
-    """Usado para formatar pesos genéricos"""
     try:
         if pd.isna(valor) or valor == "": return "0"
         texto = f"{float(valor):.3f}"
@@ -582,7 +582,7 @@ def exibir_aba_producao():
         st.warning("Nenhum dado na planilha de produção.")
     else: st.info("Clique no botão para carregar.")
 
-# --- NOVA ABA DE ESTOQUE (COM TODAS AS REGRAS) ---
+# --- NOVA ABA DE ESTOQUE (AG-GRID + FILTROS SIMPLIFICADOS) ---
 def exibir_aba_estoque():
     st.subheader("📦 Consulta de Estoque Disponível")
     
@@ -598,39 +598,25 @@ def exibir_aba_estoque():
         st.info("Nenhum dado de estoque carregado.")
         return
 
-    # Filtros
-    col1, col2, col3 = st.columns(3)
+    # FILTROS SOLICITADOS (Somente Filial)
+    lista_filiais = ["Todas"] + sorted(df_estoque['FILIAL'].unique().tolist())
     
-    with col1:
-        # Filtro de Grupo
-        grupos = sorted(df_estoque['GRUPO'].unique().tolist())
-        filtro_grupo = st.multiselect("Filtrar por Grupo:", grupos)
-        
-    with col2:
-        # Filtro de Espessura (agora já está dividida por 100)
-        if 'ESPES' in df_estoque.columns:
-            espessuras = sorted(df_estoque['ESPES'].unique().tolist())
-            filtro_espes = st.multiselect("Filtrar por Espessura (mm):", espessuras)
-        else: filtro_espes = []
-        
-    with col3:
-        # Busca Livre
-        busca = st.text_input("Buscar (Produto, Lote, Local...):")
+    c1, c2 = st.columns(2)
+    with c1:
+        filial_sel = st.selectbox("Filtrar por Filial:", lista_filiais)
+    with c2:
+        busca = st.text_input("Buscar (aperte enter após digitar):")
 
-    # Aplicação dos Filtros
+    # APLICAÇÃO DOS FILTROS
     df_filtrado = df_estoque.copy()
     
-    if filtro_grupo:
-        df_filtrado = df_filtrado[df_filtrado['GRUPO'].isin(filtro_grupo)]
-        
-    if filtro_espes:
-        df_filtrado = df_filtrado[df_filtrado['ESPES'].isin(filtro_espes)]
+    if filial_sel != "Todas":
+        df_filtrado = df_filtrado[df_filtrado['FILIAL'] == filial_sel]
         
     if busca:
         mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busca, case=False, na=False)).any(axis=1)
         df_filtrado = df_filtrado[mask]
 
-    # Exibição
     st.markdown(f"**Itens encontrados:** {len(df_filtrado)}")
     
     # ------------------------------------------------------------------
@@ -674,18 +660,47 @@ def exibir_aba_estoque():
     # Filtra apenas as que existem no dataframe para evitar erro
     cols_finais = [c for c in colunas_desejadas if c in df_show.columns]
     
-    # Exibe a tabela compacta
-    st.dataframe(
+    # ------------------------------------------------------------------
+    # CONFIGURAÇÃO DA AG-GRID (TABELA ESTILO EXCEL)
+    # ------------------------------------------------------------------
+    
+    gb = GridOptionsBuilder.from_dataframe(df_show[cols_finais])
+    
+    # Configurações Globais
+    gb.configure_default_column(
+        resizable=True, 
+        filterable=True, 
+        sortable=True,
+        # Centraliza tudo por padrão, exceto Descrição que fica à esquerda
+        cellStyle={'textAlign': 'center'}
+    )
+    
+    # Configurações Específicas de Coluna
+    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=300, cellStyle={'textAlign': 'left'}) # Descrição Larga
+    gb.configure_column("DIAS", maxWidth=80)
+    gb.configure_column("FILIAL", minWidth=120)
+    gb.configure_column("ARMAZEM", maxWidth=100)
+    gb.configure_column("LOTE", minWidth=110)
+    gb.configure_column("ESPES", maxWidth=90)
+    gb.configure_column("LARGURA", maxWidth=90)
+    gb.configure_column("COMPRIMENTO", maxWidth=100)
+    
+    # Seleção de linha (opcional, deixa bonito ao clicar)
+    gb.configure_selection('single', use_checkbox=False)
+    
+    gridOptions = gb.build()
+    
+    # Renderiza a Tabela
+    # fit_columns_on_grid_load=True TENTA fazer tudo caber na largura da tela
+    AgGrid(
         df_show[cols_finais],
-        hide_index=True,
-        use_container_width=True, # Tenta ajustar largura
-        column_config={
-            "DESCRIÇÃO DO PRODUTO": st.column_config.TextColumn("Descrição", width="large"), # Alarga a descrição
-            "DISPONIVEL": st.column_config.TextColumn("Disponível"), # Mostra como texto formatado
-            "QTDE": st.column_config.TextColumn("Qtde"),
-            "EMPENHADO": st.column_config.TextColumn("Empenhado"),
-            "DIAS": st.column_config.NumberColumn("Dias", help="Dias em estoque"),
-        }
+        gridOptions=gridOptions,
+        height=500, # Altura fixa da tabela (scroll vertical)
+        width='100%',
+        fit_columns_on_grid_load=True, # <--- O SEGREDO PARA NÃO ROLAR PRO LADO
+        theme='streamlit', # Tema clean
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        allow_unsafe_jscode=True
     )
 
 
