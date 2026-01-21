@@ -105,10 +105,7 @@ def formatar_br_decimal(valor, casas=3):
     """
     try:
         v = float(valor)
-        # Formata com padrão US primeiro (vírgula separando milhar, ponto separando decimal)
-        # Ex: {:,.3f} transforma 1234.56 em "1,234.560"
         s = "{:,.{}f}".format(v, casas)
-        # Troca os sinais para o padrão BR
         return s.replace(',', 'X').replace('.', ',').replace('X', '.')
     except:
         return str(valor)
@@ -158,12 +155,9 @@ def carregar_estoque():
         df.columns = df.columns.str.strip().str.upper()
         
         # 1. Tratamento de Datas para cálculo de DIAS
-        # A coluna deve se chamar 'DIAS.ESTOQUE' conforme sua query
         if 'DIAS.ESTOQUE' in df.columns:
             try:
-                # Converte para datetime
                 df['DATA_ENTRADA'] = pd.to_datetime(df['DIAS.ESTOQUE'], dayfirst=True, errors='coerce')
-                # Calcula a diferença para hoje
                 agora = datetime.now()
                 df['DIAS'] = (agora - df['DATA_ENTRADA']).dt.days
                 df['DIAS'] = df['DIAS'].fillna(0).astype(int)
@@ -172,13 +166,13 @@ def carregar_estoque():
         else:
             df['DIAS'] = 0
 
-        # 2. Tratamento Númerico Básico (para poder filtrar depois)
+        # 2. Tratamento Númerico Básico
         cols_float = ['QTDE', 'EMPENHADO', 'DISPONIVEL', 'ESPES', 'LARGURA', 'COMPRIMENTO']
         for col in cols_float:
             if col in df.columns:
                 df[col] = df[col].apply(converte_numero_seguro)
         
-        # 3. Regra da Espessura (Dividir por 100)
+        # 3. Regra da Espessura
         if 'ESPES' in df.columns:
             df['ESPES'] = df['ESPES'] / 100.0
 
@@ -608,15 +602,16 @@ def exibir_aba_estoque():
         busca = st.text_input("Buscar (aperte enter após digitar):")
 
     # CHECKBOX DE FILTRO DE DISPONIBILIDADE
-    somente_disp = st.checkbox("Somente Disponível", value=False)
+    # Título principal + Caption abaixo (para fonte menor)
+    somente_disp = st.checkbox("Somente Disponível")
+    st.caption("(marque para mostrar somente itens que possuem saldo disponível maior que zero)")
 
     # APLICAÇÃO DOS FILTROS
     df_filtrado = df_estoque.copy()
     
-    # 1. Filtro de Saldo (Matemático, antes de virar texto)
+    # 1. Filtro de Saldo
     if somente_disp:
         if 'DISPONIVEL' in df_filtrado.columns:
-            # Filtra onde DISPONIVEL > 0.001 (para evitar float bugs de 0.0000001)
             df_filtrado = df_filtrado[df_filtrado['DISPONIVEL'] > 0.001]
 
     # 2. Filtro de Filial
@@ -636,7 +631,7 @@ def exibir_aba_estoque():
     
     df_show = df_filtrado.copy()
     
-    # 1. Renomeia Colunas (Mapeamento Solicitado)
+    # 1. Renomeia Colunas
     mapa_renomeacao = {
         'PRODUTO': 'DESCRIÇÃO DO PRODUTO',
         'ARMAZEM': 'ARM',
@@ -647,22 +642,21 @@ def exibir_aba_estoque():
     }
     df_show.rename(columns=mapa_renomeacao, inplace=True)
 
-    # 2. Formata Espessura (2 casas, vírgula)
+    # 2. Formata Espessura
     if 'ESPES' in df_show.columns:
         df_show['ESPES'] = df_show['ESPES'].apply(lambda x: formatar_br_decimal(x, 2))
 
-    # 3. Formata Quantidades (3 casas, vírgula)
-    # Note que agora usamos os nomes NOVOS (EMP, DISP)
+    # 3. Formata Quantidades
     cols_qtd = ['QTDE', 'EMP', 'DISP']
     for col in cols_qtd:
         if col in df_show.columns:
             df_show[col] = df_show[col].apply(lambda x: formatar_br_decimal(x, 3))
 
-    # 4. Formata Comprimento (Sem decimal .0, remove vírgula se houver)
+    # 4. Formata Comprimento
     if 'COMP' in df_show.columns:
         df_show['COMP'] = df_show['COMP'].apply(lambda x: str(int(x)) if x > 0 else "0")
 
-    # Seleção e Ordem das colunas (Usando os novos nomes)
+    # Seleção e Ordem das colunas
     colunas_desejadas = [
         "DIAS",
         "FILIAL", 
@@ -676,11 +670,10 @@ def exibir_aba_estoque():
         "EMP",
         "DISP"
     ]
-    # Filtra apenas as que existem no dataframe para evitar erro
     cols_finais = [c for c in colunas_desejadas if c in df_show.columns]
     
     # ------------------------------------------------------------------
-    # CONFIGURAÇÃO DA AG-GRID (TABELA ESTILO EXCEL)
+    # CONFIGURAÇÃO DA AG-GRID
     # ------------------------------------------------------------------
     
     gb = GridOptionsBuilder.from_dataframe(df_show[cols_finais])
@@ -693,18 +686,20 @@ def exibir_aba_estoque():
         cellStyle={'textAlign': 'center'}
     )
     
-    # Configurações Específicas de Coluna (Larguras ajustadas para compactação)
-    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=250, cellStyle={'textAlign': 'left'}) # Flexível
-    gb.configure_column("DIAS", maxWidth=70)
-    gb.configure_column("FILIAL", minWidth=100)
-    gb.configure_column("ARM", maxWidth=70)
-    gb.configure_column("LOTE", minWidth=100)
-    gb.configure_column("ESPES", maxWidth=80)
-    gb.configure_column("LARG", maxWidth=80)
-    gb.configure_column("COMP", maxWidth=80)
-    gb.configure_column("QTDE", maxWidth=90)
-    gb.configure_column("EMP", maxWidth=90)
-    gb.configure_column("DISP", minWidth=90, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'}) # Destaque Azul Escuro
+    # Configurações Específicas de Coluna (Larguras AJUSTADAS PARA EVITAR CORTES)
+    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=250, cellStyle={'textAlign': 'left'}) 
+    
+    # Aumentei os minWidth para garantir que os cabeçalhos apareçam (DIAS e LARG)
+    gb.configure_column("DIAS", minWidth=80, maxWidth=120) 
+    gb.configure_column("FILIAL", minWidth=120)
+    gb.configure_column("ARM", maxWidth=80)
+    gb.configure_column("LOTE", minWidth=110)
+    gb.configure_column("ESPES", maxWidth=90)
+    gb.configure_column("LARG", minWidth=90, maxWidth=120) # Aumentado para não cortar "LARG"
+    gb.configure_column("COMP", maxWidth=90)
+    gb.configure_column("QTDE", maxWidth=100)
+    gb.configure_column("EMP", maxWidth=100)
+    gb.configure_column("DISP", minWidth=100, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'})
     
     gb.configure_selection('single', use_checkbox=False)
     gridOptions = gb.build()
@@ -714,7 +709,7 @@ def exibir_aba_estoque():
         gridOptions=gridOptions,
         height=500,
         width='100%',
-        fit_columns_on_grid_load=True, # Tenta encaixar na tela
+        fit_columns_on_grid_load=True, 
         theme='streamlit',
         update_mode=GridUpdateMode.SELECTION_CHANGED,
         allow_unsafe_jscode=True
