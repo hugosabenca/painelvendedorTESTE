@@ -103,7 +103,7 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
-# FUNÇÃO MÁGICA DE PERSISTÊNCIA SILENCIOSA (NOVO)
+# FUNÇÃO MÁGICA DE PERSISTÊNCIA SILENCIOSA
 # ==============================================================================
 
 def obter_dados_persistentes(chave_sessao, funcao_carregamento):
@@ -112,18 +112,14 @@ def obter_dados_persistentes(chave_sessao, funcao_carregamento):
     Se der erro (None), SILENCIOSAMENTE retorna o que já estava na memória.
     Garante que o usuário sempre veja algo.
     """
-    # 1. Inicializa a memória se não existir
     if chave_sessao not in st.session_state:
         st.session_state[chave_sessao] = pd.DataFrame()
     
-    # 2. Tenta buscar dados novos (vai usar cache do Streamlit se disponível)
     dados_novos = funcao_carregamento()
     
-    # 3. Se veio dados válidos (mesmo que tabela vazia, mas conexão ok), atualiza
     if dados_novos is not None:
         st.session_state[chave_sessao] = dados_novos
     
-    # 4. Retorna o que está na memória (Novo ou Antigo)
     return st.session_state[chave_sessao]
 
 # ==============================================================================
@@ -199,7 +195,7 @@ def carregar_faturamento_vendedores():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_estoque():
     df = ler_com_retry(URL_SISTEMA, "Dados_Estoque")
-    if df is None: return None # Erro de conexão
+    if df is None: return None 
     
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
@@ -914,7 +910,7 @@ if 'logado' not in st.session_state:
     st.session_state['usuario_tipo'] = ""
 if 'fazendo_cadastro' not in st.session_state: st.session_state['fazendo_cadastro'] = False
 
-# --- LOGIN ---
+# --- LOGIN (CORRIGIDO V3) ---
 if not st.session_state['logado']:
     if st.session_state['fazendo_cadastro']:
         st.title("📝 Solicitação de Acesso")
@@ -945,15 +941,22 @@ if not st.session_state['logado']:
                         user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
                         if not user.empty:
                             d = user.iloc[0]
+                            # --- CORREÇÃO DE COLUNAS ---
+                            col_nome = 'Nome' # Padrão
+                            if 'Nome Vendedor' in d: col_nome = 'Nome Vendedor'
+                            elif 'Vendedor' in d: col_nome = 'Vendedor'
+                            
+                            nome_completo = d.get(col_nome, d.get('Nome', 'Usuario'))
+                            
                             st.session_state.update({
                                 'logado': True, 
-                                'usuario_nome': d['Nome Vendedor'].split()[0], 
-                                'usuario_filtro': d['Nome Vendedor'], 
+                                'usuario_nome': str(nome_completo).split()[0], 
+                                'usuario_filtro': str(nome_completo), 
                                 'usuario_email': d.get('Email', ''), 
-                                'usuario_tipo': d['Tipo'],
-                                'usuario_login': d['Login']
+                                'usuario_tipo': d.get('Tipo', 'vendedor'), # Fallback seguro
+                                'usuario_login': d.get('Login', u)
                             })
-                            registrar_acesso(u, d['Nome Vendedor'])
+                            registrar_acesso(u, str(nome_completo))
                             st.rerun()
                         else: st.error("Dados incorretos.")
                     except: st.error("Erro ao processar login.")
