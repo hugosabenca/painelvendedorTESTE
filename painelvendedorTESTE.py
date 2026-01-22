@@ -34,26 +34,44 @@ except Exception:
     pass 
 
 # ==============================================================================
-# CONEXÃO GSPREAD (MOTOR ESTÁVEL)
+# 1. CONEXÃO GSPREAD OTIMIZADA ("Cofre Aberto")
 # ==============================================================================
 
-def conectar_google_sheets():
-    """Conecta usando gspread e st.secrets."""
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    try:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    except:
-        creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-    return gspread.authorize(creds)
+def get_gspread_client_cached():
+    """
+    Substitui a conexão antiga. Mantém o cliente na memória da sessão
+    para evitar re-autenticar a cada clique (Economia de Cota e Tempo).
+    """
+    if 'gspread_client' not in st.session_state:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        try:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        except:
+            creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+        
+        client = gspread.authorize(creds)
+        st.session_state['gspread_client'] = client
+        return client
+    
+    # Verifica se o token expirou e renova se necessário
+    client = st.session_state['gspread_client']
+    if client.auth.expired:
+        client.login()
+    return client
 
 # ==============================================================================
-# LEITURA E ESCRITA
+# LEITURA E ESCRITA (COM TRATAMENTO DE ERRO "SINALIZADO")
 # ==============================================================================
 
 def ler_com_retry(url, aba, tentativas=5, espera=1):
-    """Lê dados com gspread, tratando falhas."""
-    client = conectar_google_sheets()
+    """
+    Tenta ler os dados.
+    - Se sucesso: Retorna DataFrame.
+    - Se erro de conexão (429/Timeout): Retorna None (Sinal para usar cache).
+    - Se vazio: Retorna DataFrame vazio.
+    """
+    client = get_gspread_client_cached()
     for i in range(tentativas):
         try:
             sheet = client.open_by_url(url)
@@ -64,12 +82,21 @@ def ler_com_retry(url, aba, tentativas=5, espera=1):
             else:
                 return pd.DataFrame()
         except Exception as e:
-            time.sleep(espera)
-    return pd.DataFrame()
+            # Se for erro de cota, espera mais tempo
+            msg = str(e).lower()
+            if "429" in msg or "quota exceeded" in msg:
+                time.sleep(espera * 2)
+            else:
+                time.sleep(espera)
+            
+            # Se falhar na última tentativa, retorna None (Erro Crítico de Conexão)
+            if i == tentativas - 1:
+                return None
+    return None
 
 def escrever_no_sheets(url, aba, df_novo, modo="append"):
     try:
-        client = conectar_google_sheets()
+        client = get_gspread_client_cached() # Usa a conexão rápida
         sheet = client.open_by_url(url)
         worksheet = sheet.worksheet(aba)
         if modo == "overwrite":
@@ -84,13 +111,37 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
+# 2. FUNÇÃO DE BLINDAGEM DE DADOS ("Memória Persistente")
+# ==============================================================================
+
+def obter_dados_persistentes(chave_sessao, funcao_carregamento):
+    """
+    Tenta buscar dados novos.
+    Se der erro de conexão (None), retorna SILENCIOSAMENTE os dados antigos 
+    que já estavam na memória, sem mostrar erro para o usuário.
+    """
+    # 1. Garante que a memória existe (mesmo que vazia no início)
+    if chave_sessao not in st.session_state:
+        st.session_state[chave_sessao] = pd.DataFrame()
+    
+    # 2. Tenta carregar dados novos
+    dados_novos = funcao_carregamento()
+    
+    # 3. Se veio dado válido (mesmo que tabela vazia, mas conexão OK), atualiza a memória
+    if dados_novos is not None:
+        st.session_state[chave_sessao] = dados_novos
+    
+    # 4. Se dados_novos for None (Erro Conexão), ignora e retorna o antigo (Memória)
+    return st.session_state[chave_sessao]
+
+# ==============================================================================
 # FUNÇÕES DE FEEDBACK
 # ==============================================================================
 
 def ja_enviou_feedback(login):
-    """Verifica se o login já existe na aba de Feedback."""
+    # Usa retry padrão, mas retorna False se falhar para não travar
     df = ler_com_retry(URL_SISTEMA, "Feedback_Vendedores", tentativas=3)
-    if df.empty:
+    if df is None or df.empty:
         return False
     
     if 'Login' in df.columns:
@@ -138,18 +189,20 @@ def formatar_br_decimal(valor, casas=3):
         return str(valor)
 
 # ==============================================================================
-# CARREGAMENTO DE DADOS (COM CACHE)
+# CARREGAMENTO DE DADOS (USANDO CACHE DO STREAMLIT + SINAL DE ERRO)
 # ==============================================================================
 
 @st.cache_data(ttl="30m", show_spinner=False)
 def carregar_usuarios():
+    # Login precisa ser confiável, então tenta mais vezes
     df_users = ler_com_retry(URL_SISTEMA, "Usuarios", tentativas=10, espera=2)
-    if not df_users.empty: return df_users.astype(str)
+    if df_users is not None and not df_users.empty: return df_users.astype(str)
     return pd.DataFrame()
 
 @st.cache_data(ttl="10m", show_spinner=False)
 def ler_dados_nuvem_generico(aba, url_planilha):
     df = ler_com_retry(url_planilha, aba)
+    if df is None: return None # Retorna None para ativar persistência
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'TONS' in df.columns:
@@ -165,6 +218,7 @@ def carregar_dados_faturamento_transf(): return ler_dados_nuvem_generico("Dados_
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_faturamento_vendedores():
     df = ler_com_retry(URL_SISTEMA, "Dados_Fat_Vendedores")
+    if df is None: return None
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'TONS' in df.columns:
@@ -177,6 +231,7 @@ def carregar_faturamento_vendedores():
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_estoque():
     df = ler_com_retry(URL_SISTEMA, "Dados_Estoque")
+    if df is None: return None # Erro de conexão = None
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'DIAS.ESTOQUE' in df.columns:
@@ -201,6 +256,7 @@ def carregar_estoque():
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_faturamento():
     df = ler_com_retry(URL_SISTEMA, "Metas_Faturamento")
+    if df is None: return pd.DataFrame(columns=['FILIAL', 'META']) # Metas podem falhar sem quebrar
     if df.empty: return pd.DataFrame(columns=['FILIAL', 'META'])
     df.columns = df.columns.str.strip().str.upper()
     if 'META' in df.columns:
@@ -210,6 +266,7 @@ def carregar_metas_faturamento():
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_dados_producao_nuvem():
     df = ler_com_retry(URL_SISTEMA, "Dados_Producao")
+    if df is None: return None
     if not df.empty:
         df.columns = df.columns.str.strip().str.upper()
         if 'VOLUME' in df.columns:
@@ -222,7 +279,7 @@ def carregar_dados_producao_nuvem():
 @st.cache_data(ttl="10m", show_spinner=False)
 def carregar_metas_producao():
     df = ler_com_retry(URL_SISTEMA, "Metas_Producao")
-    if df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
+    if df is None or df.empty: return pd.DataFrame(columns=['MAQUINA', 'META'])
     df.columns = df.columns.str.strip().str.upper()
     if 'META' in df.columns:
         df['META'] = df['META'].apply(converte_numero_seguro)
@@ -231,12 +288,13 @@ def carregar_metas_producao():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes():
     df = ler_com_retry(URL_SISTEMA, "Solicitacoes")
-    if df.empty: return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
+    if df is None or df.empty: return pd.DataFrame(columns=["Nome", "Email", "Login", "Senha", "Data", "Status"])
     return df
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_fotos():
     df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Fotos")
+    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
     if not df.empty:
         cols_map = {c: c.strip() for c in df.columns}
         df = df.rename(columns=cols_map)
@@ -247,6 +305,7 @@ def carregar_solicitacoes_fotos():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_certificados():
     df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Certificados")
+    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
     if not df.empty:
         cols_map = {c: c.strip() for c in df.columns}
         df = df.rename(columns=cols_map)
@@ -257,6 +316,7 @@ def carregar_solicitacoes_certificados():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_notas():
     df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Notas")
+    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "NF", "Filial", "Status"])
     if not df.empty:
         cols_map = {c: c.strip() for c in df.columns}
         df = df.rename(columns=cols_map)
@@ -267,6 +327,7 @@ def carregar_solicitacoes_notas():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_logs_acessos():
     df = ler_com_retry(URL_SISTEMA, "Acessos")
+    if df is None: return pd.DataFrame(columns=["Data", "Login", "Nome"])
     if not df.empty:
         df.columns = df.columns.str.strip()
         if "Data" in df.columns:
@@ -283,7 +344,7 @@ def carregar_dados_pedidos():
     # Pinheiral
     for aba in ABAS_PINHEIRAL:
         df = ler_com_retry(URL_PINHEIRAL, aba, tentativas=2)
-        if not df.empty:
+        if df is not None and not df.empty:
             df = df.astype(str)
             df['Máquina/Processo'] = aba
             df['Filial_Origem'] = "PINHEIRAL"
@@ -298,7 +359,7 @@ def carregar_dados_pedidos():
     # Bicas
     for aba in ABAS_BICAS:
         df = ler_com_retry(URL_BICAS, aba, tentativas=2)
-        if not df.empty:
+        if df is not None and not df.empty:
             df = df.astype(str)
             df['Máquina/Processo'] = aba
             df['Filial_Origem'] = "SJ BICAS"
@@ -317,6 +378,7 @@ def carregar_dados_pedidos():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_credito():
     df = ler_com_retry(URL_SISTEMA, "Dados_Credito")
+    if df is None: return None
     if not df.empty:
         df = df.astype(str)
         df.columns = df.columns.str.strip().str.upper()
@@ -326,6 +388,7 @@ def carregar_dados_credito():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_carteira():
     df = ler_com_retry(URL_SISTEMA, "Dados_Carteira")
+    if df is None: return None
     if not df.empty:
         df = df.astype(str)
         df.columns = df.columns.str.strip().str.upper()
@@ -335,6 +398,7 @@ def carregar_dados_carteira():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_titulos():
     df = ler_com_retry(URL_SISTEMA, "Dados_Titulos")
+    if df is None: return None
     if not df.empty:
         df = df.astype(str)
         df.columns = df.columns.str.strip().str.upper()
@@ -464,46 +528,42 @@ def exibir_aba_faturamento():
         with st.spinner("Buscando dados sincronizados..."):
             carregar_dados_faturamento_direto.clear()
             carregar_dados_faturamento_transf.clear()
-            st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
-            st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
-            st.session_state['metas_faturamento'] = carregar_metas_faturamento()
+            st.rerun() # Persistencia ativa
             
-    if 'metas_faturamento' not in st.session_state: st.session_state['metas_faturamento'] = carregar_metas_faturamento()
-    if 'dados_faturamento' not in st.session_state: st.session_state['dados_faturamento'] = carregar_dados_faturamento_direto()
-    if 'dados_faturamento_transf' not in st.session_state: st.session_state['dados_faturamento_transf'] = carregar_dados_faturamento_transf()
+    # USO DA FUNÇÃO BLINDADA
+    df_direto = obter_dados_persistentes("cache_fat_direto", carregar_dados_faturamento_direto)
+    df_transf = obter_dados_persistentes("cache_fat_transf", carregar_dados_faturamento_transf)
+    df_meta = obter_dados_persistentes("cache_fat_meta", carregar_metas_faturamento)
     
     with st.expander("⚙️ Definir Meta (tons)"):
         with st.form("form_metas_fat"):
             st.caption("Defina a meta diária de faturamento para PINHEIRAL (Direto).")
             novas_metas = {}
             valor_atual = 0.0
-            df_m = st.session_state['metas_faturamento']
-            if not df_m.empty:
-                filtro = df_m[df_m['FILIAL'] == 'PINHEIRAL']
+            if not df_meta.empty:
+                filtro = df_meta[df_meta['FILIAL'] == 'PINHEIRAL']
                 if not filtro.empty: valor_atual = float(filtro.iloc[0]['META'])
             novas_metas['PINHEIRAL'] = st.number_input("PINHEIRAL", value=valor_atual, step=1.0, min_value=0.0)
             if st.form_submit_button("💾 Salvar Metas"):
                 if salvar_metas_faturamento(novas_metas):
                     st.success("Meta atualizada!")
                     carregar_metas_faturamento.clear()
-                    st.session_state['metas_faturamento'] = carregar_metas_faturamento()
                     st.rerun()
     st.divider()
     periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="fat_periodo")
     hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
     if periodo == "Últimos 7 Dias": data_limite = hoje_normalizado - timedelta(days=6)
     else: data_limite = hoje_normalizado.replace(day=1)
-    df_direto = st.session_state['dados_faturamento']
+    
     if not df_direto.empty:
         df_filtro_direto = df_direto[df_direto['DATA_DT'].dt.date >= data_limite.date()]
         meta_direto = 0
-        df_m = st.session_state['metas_faturamento']
-        if not df_m.empty:
-            fmeta = df_m[df_m['FILIAL'] == 'PINHEIRAL']
+        if not df_meta.empty:
+            fmeta = df_meta[df_meta['FILIAL'] == 'PINHEIRAL']
             if not fmeta.empty: meta_direto = float(fmeta.iloc[0]['META'])
         plotar_grafico_faturamento(df_filtro_direto, "Faturamento Direto: Pinheiral", meta_direto)
     else: st.info("Sem dados de Faturamento Direto carregados.")
-    df_transf = st.session_state['dados_faturamento_transf']
+    
     if not df_transf.empty:
         df_filtro_transf = df_transf[df_transf['DATA_DT'].dt.date >= data_limite.date()]
         plotar_grafico_faturamento(df_filtro_transf, "Faturamento Transferência: Pinheiral", meta_valor=None) 
@@ -514,35 +574,33 @@ def exibir_aba_producao():
     if st.button("🔄 Atualizar Produção"):
         with st.spinner("Carregando indicadores..."):
             carregar_dados_producao_nuvem.clear() 
-            st.session_state['dados_producao'] = carregar_dados_producao_nuvem()
-            st.session_state['metas_producao'] = carregar_metas_producao()
+            st.rerun()
             
-    if 'metas_producao' not in st.session_state: st.session_state['metas_producao'] = carregar_metas_producao()
+    # USO DA FUNÇÃO BLINDADA
+    df = obter_dados_persistentes("cache_producao_dados", carregar_dados_producao_nuvem)
+    df_metas = obter_dados_persistentes("cache_producao_metas", carregar_metas_producao)
+
     with st.expander("⚙️ Definir Metas Diárias (Tons)"):
-        if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
-            lista_maquinas = sorted(st.session_state['dados_producao']['MAQUINA'].unique())
+        if not df.empty:
+            lista_maquinas = sorted(df['MAQUINA'].unique())
         else: lista_maquinas = ["Divimec 1", "Divimec 2", "Endireitadeira", "Esquadros", "Fagor", "Marafon"]
         with st.form("form_metas"):
             st.caption("Defina a meta diária (Tons) para cada máquina.")
             novas_metas = {}
             cols = st.columns(3)
-            df_metas_atual = st.session_state['metas_producao']
             for i, mq in enumerate(lista_maquinas):
                 valor_atual = 0.0
-                if not df_metas_atual.empty:
-                    filtro = df_metas_atual[df_metas_atual['MAQUINA'] == mq]
+                if not df_metas.empty:
+                    filtro = df_metas[df_metas['MAQUINA'] == mq]
                     if not filtro.empty: valor_atual = float(filtro.iloc[0]['META'])
                 with cols[i % 3]: novas_metas[mq] = st.number_input(f"{mq}", value=valor_atual, step=1.0, min_value=0.0)
             if st.form_submit_button("💾 Salvar Metas"):
                 if salvar_metas_producao(novas_metas): 
                     st.success("Metas atualizadas!")
                     carregar_metas_producao.clear()
-                    st.session_state['metas_producao'] = carregar_metas_producao()
                     st.rerun()
     st.divider()
-    if 'dados_producao' in st.session_state and not st.session_state['dados_producao'].empty:
-        df = st.session_state['dados_producao']
-        df_metas = st.session_state['metas_producao']
+    if not df.empty:
         periodo = st.radio("Selecione o Período:", ["Últimos 7 Dias", "Acumulado Mês Corrente"], horizontal=True, key="prod_periodo")
         hoje_normalizado = datetime.now(FUSO_BR).replace(hour=0, minute=0, second=0, microsecond=0)
         if periodo == "Últimos 7 Dias": data_limite = hoje_normalizado - timedelta(days=6) 
@@ -604,8 +662,9 @@ def exibir_aba_estoque():
         if st.button("🔄 Atualizar Estoque"):
             carregar_estoque.clear()
             st.rerun()
-            
-    df_estoque = carregar_estoque()
+    
+    # USO DA FUNÇÃO BLINDADA (PERSISTÊNCIA)
+    df_estoque = obter_dados_persistentes("cache_estoque", carregar_estoque)
     
     if df_estoque.empty:
         st.info("Nenhum dado de estoque carregado.")
@@ -746,8 +805,11 @@ def exibir_aba_estoque():
 
 def exibir_carteira_pedidos():
     tipo_usuario = st.session_state['usuario_tipo'].lower()
-    df_total = carregar_dados_pedidos()
-    if df_total is not None and not df_total.empty:
+    
+    # USO DA FUNÇÃO BLINDADA (PERSISTÊNCIA)
+    df_total = obter_dados_persistentes("cache_pedidos", carregar_dados_pedidos)
+
+    if not df_total.empty:
         df_total = df_total.dropna(subset=["Número do Pedido"])
         df_total = df_total[~df_total["Número do Pedido"].isin(["000nan", "00None", "000000"])]
         filtro_filial = st.selectbox("Selecione a Filial:", ["Todas", "PINHEIRAL", "SJ BICAS"])
@@ -919,10 +981,10 @@ def exibir_aba_credito():
         * **CANCELADO**: Convênio de crédito encerrado, não sendo mais possível operar via Supplier/BV.
         """)
 
-    # 1. Carrega Dados (Com Retry Logic)
-    df_credito = carregar_dados_credito()
-    df_carteira = carregar_dados_carteira()
-    df_titulos_geral = carregar_dados_titulos() # Carrega base de títulos
+    # 1. Carrega Dados (Com Retry Logic) - BLINDADO
+    df_credito = obter_dados_persistentes("cache_credito", carregar_dados_credito)
+    df_carteira = obter_dados_persistentes("cache_carteira_cred", carregar_dados_carteira)
+    df_titulos_geral = obter_dados_persistentes("cache_titulos", carregar_dados_titulos) 
     
     if df_credito.empty:
         st.info("Nenhuma informação de crédito disponível no momento (Aguardando sincronização do Robô).")
