@@ -34,18 +34,32 @@ except Exception:
     pass 
 
 # ==============================================================================
-# CONEXÃO GSPREAD (MOTOR ESTÁVEL)
+# CONEXÃO GSPREAD (MOTOR ESTÁVEL + REUTILIZAÇÃO)
 # ==============================================================================
 
 def conectar_google_sheets():
-    """Conecta usando gspread e st.secrets."""
+    """
+    Conecta usando gspread e st.secrets.
+    OTIMIZAÇÃO: Reutiliza o cliente salvo na sessão se disponível.
+    """
+    # 1. Verifica se já existe um cliente autenticado na sessão
+    if 'gspread_client_cache' in st.session_state:
+        return st.session_state['gspread_client_cache']
+
+    # 2. Se não existir, faz a autenticação normal
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     except:
         creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-    return gspread.authorize(creds)
+    
+    client = gspread.authorize(creds)
+    
+    # 3. Salva na sessão para as próximas chamadas (o "Cofre Aberto")
+    st.session_state['gspread_client_cache'] = client
+    
+    return client
 
 # ==============================================================================
 # LEITURA E ESCRITA
@@ -53,7 +67,7 @@ def conectar_google_sheets():
 
 def ler_com_retry(url, aba, tentativas=5, espera=1):
     """Lê dados com gspread, tratando falhas."""
-    client = conectar_google_sheets()
+    client = conectar_google_sheets() # Agora usa o cache
     for i in range(tentativas):
         try:
             sheet = client.open_by_url(url)
@@ -64,12 +78,17 @@ def ler_com_retry(url, aba, tentativas=5, espera=1):
             else:
                 return pd.DataFrame()
         except Exception as e:
+            # Se der erro de autenticação (token expirou), limpa o cache e tenta de novo
+            if "401" in str(e) or "unaothorized" in str(e).lower():
+                if 'gspread_client_cache' in st.session_state:
+                    del st.session_state['gspread_client_cache']
+                client = conectar_google_sheets() # Reconecta
             time.sleep(espera)
     return pd.DataFrame()
 
 def escrever_no_sheets(url, aba, df_novo, modo="append"):
     try:
-        client = conectar_google_sheets()
+        client = conectar_google_sheets() # Agora usa o cache
         sheet = client.open_by_url(url)
         worksheet = sheet.worksheet(aba)
         if modo == "overwrite":
@@ -80,7 +99,26 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
             dados = df_novo.values.tolist()
             worksheet.append_rows(dados, value_input_option="USER_ENTERED")
         return True
-    except:
+    except Exception as e:
+        # Retry simples para token expirado na escrita
+        if "401" in str(e) or "unaothorized" in str(e).lower():
+            if 'gspread_client_cache' in st.session_state:
+                del st.session_state['gspread_client_cache']
+            # Tenta recursivamente uma vez
+            try:
+                client = conectar_google_sheets()
+                sheet = client.open_by_url(url)
+                worksheet = sheet.worksheet(aba)
+                if modo == "overwrite":
+                    worksheet.clear()
+                    dados = [df_novo.columns.values.tolist()] + df_novo.values.tolist()
+                    worksheet.update(dados, value_input_option="USER_ENTERED")
+                else:
+                    dados = df_novo.values.tolist()
+                    worksheet.append_rows(dados, value_input_option="USER_ENTERED")
+                return True
+            except:
+                return False
         return False
 
 # ==============================================================================
