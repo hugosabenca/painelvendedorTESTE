@@ -702,21 +702,32 @@ def exibir_aba_estoque():
         resizable=True, 
         filterable=True, 
         sortable=True,
-        cellStyle={'textAlign': 'center'}
+        cellStyle={'textAlign': 'center'},
+        suppressSizeToFit=False # Garante que tente ajustar
     )
     
-    # Configurações Específicas de Coluna (Larguras AJUSTADAS)
-    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=250, cellStyle={'textAlign': 'left'}) 
-    gb.configure_column("DIAS", minWidth=80, maxWidth=120) 
-    gb.configure_column("FILIAL", minWidth=120)
-    gb.configure_column("ARM", maxWidth=80)
-    gb.configure_column("LOTE", minWidth=110)
-    gb.configure_column("ESPES", maxWidth=90)
-    gb.configure_column("LARG", minWidth=90, maxWidth=120) 
-    gb.configure_column("COMP", maxWidth=90)
-    gb.configure_column("QTDE", maxWidth=100)
-    gb.configure_column("EMP", maxWidth=100)
-    gb.configure_column("DISP", minWidth=100, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'})
+    # Configurações Específicas de Coluna (Larguras AGRESSIVAS e FIXAS)
+    
+    # Descrição do Produto: A única com flex=1 para ocupar o espaço que sobrar
+    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=150, flex=1, cellStyle={'textAlign': 'left'}) 
+    
+    # Colunas pequenas (Números e códigos) - Definindo width fixo pequeno
+    gb.configure_column("DIAS", width=60, minWidth=50, maxWidth=80) 
+    gb.configure_column("FILIAL", width=110, minWidth=90)
+    gb.configure_column("ARM", width=60, minWidth=50, maxWidth=70)
+    gb.configure_column("LOTE", width=110, minWidth=90)
+    
+    # Medidas (Bem compactas)
+    gb.configure_column("ESPES", width=70, minWidth=60, maxWidth=80)
+    gb.configure_column("LARG", width=70, minWidth=60, maxWidth=80)
+    gb.configure_column("COMP", width=70, minWidth=60, maxWidth=80)
+    
+    # Quantidades (Médias)
+    gb.configure_column("QTDE", width=80, minWidth=70, maxWidth=100)
+    gb.configure_column("EMP", width=80, minWidth=70, maxWidth=100)
+    
+    # Disponível (Destaque, um pouco maior para não cortar o negrito)
+    gb.configure_column("DISP", width=90, minWidth=80, maxWidth=110, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'})
     
     gb.configure_selection('single', use_checkbox=False)
     gridOptions = gb.build()
@@ -1304,7 +1315,7 @@ else:
                 st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
+        a1, a2, a3, a4, a5, a6, a7, a8, a9 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
         with a3: exibir_aba_estoque() # <--- NOVA ABA
