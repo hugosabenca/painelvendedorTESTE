@@ -677,7 +677,6 @@ def exibir_aba_estoque():
 
     # Seleção e Ordem das colunas
     colunas_desejadas = [
-        "DIAS",
         "FILIAL", 
         "ARM", 
         "DESCRIÇÃO DO PRODUTO", 
@@ -685,7 +684,7 @@ def exibir_aba_estoque():
         "ESPES", 
         "LARG", 
         "COMP", 
-        "QTDE",
+        "QTDE", 
         "EMP",
         "DISP"
     ]
@@ -697,26 +696,38 @@ def exibir_aba_estoque():
     
     gb = GridOptionsBuilder.from_dataframe(df_show[cols_finais])
     
-    # Configurações Globais
+    # Configurações Globais (Floating Filter ATIVADO)
     gb.configure_default_column(
         resizable=True, 
         filterable=True, 
         sortable=True,
-        cellStyle={'textAlign': 'center'}
+        cellStyle={'textAlign': 'center'},
+        suppressSizeToFit=False # Garante que tente ajustar
     )
     
-    # Configurações Específicas de Coluna (Larguras AJUSTADAS)
-    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=250, cellStyle={'textAlign': 'left'}) 
-    gb.configure_column("DIAS", minWidth=80, maxWidth=120) 
-    gb.configure_column("FILIAL", minWidth=120)
-    gb.configure_column("ARM", maxWidth=80)
-    gb.configure_column("LOTE", minWidth=110)
-    gb.configure_column("ESPES", maxWidth=90)
-    gb.configure_column("LARG", minWidth=90, maxWidth=120) 
-    gb.configure_column("COMP", maxWidth=90)
-    gb.configure_column("QTDE", maxWidth=100)
-    gb.configure_column("EMP", maxWidth=100)
-    gb.configure_column("DISP", minWidth=100, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'})
+    gb.configure_grid_options(floatingFilter=True) # <--- BUSCA INSTANTÂNEA EM CADA COLUNA
+
+    # Configurações Específicas de Coluna (Larguras AGRESSIVAS e FIXAS)
+    
+    # Descrição do Produto: A única com flex=1 para ocupar o espaço que sobrar
+    gb.configure_column("DESCRIÇÃO DO PRODUTO", minWidth=380, flex=1, cellStyle={'textAlign': 'left'}) 
+    
+    # Colunas pequenas (Números e códigos) - Definindo width fixo pequeno
+    gb.configure_column("FILIAL", width=110, minWidth=90)
+    gb.configure_column("ARM", width=60, minWidth=50, maxWidth=70)
+    gb.configure_column("LOTE", width=110, minWidth=90)
+    
+    # Medidas (Bem compactas)
+    gb.configure_column("ESPES", width=70, minWidth=60, maxWidth=80)
+    gb.configure_column("LARG", width=70, minWidth=60, maxWidth=80)
+    gb.configure_column("COMP", width=70, minWidth=60, maxWidth=80)
+    
+    # Quantidades (Médias)
+    gb.configure_column("QTDE", width=80, minWidth=70, maxWidth=100)
+    gb.configure_column("EMP", width=80, minWidth=70, maxWidth=100)
+    
+    # Disponível (Destaque, um pouco maior para não cortar o negrito)
+    gb.configure_column("DISP", width=90, minWidth=80, maxWidth=110, cellStyle={'fontWeight': 'bold', 'textAlign': 'center', 'color': '#000080'})
     
     gb.configure_selection('single', use_checkbox=False)
     gridOptions = gb.build()
@@ -1336,4 +1347,3 @@ else:
         with a4: exibir_aba_fotos(False) # VISÃO NORMAL
         with a5: exibir_aba_certificados(False)
         with a6: exibir_aba_notas(False)
-}
