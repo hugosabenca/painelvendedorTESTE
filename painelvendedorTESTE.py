@@ -84,7 +84,7 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
-# FUNÇÕES DE FEEDBACK (ATUALIZADO)
+# FUNÇÕES DE FEEDBACK
 # ==============================================================================
 
 def ja_enviou_feedback(login):
@@ -1336,4 +1336,3 @@ else:
         with a4: exibir_aba_fotos(False) # VISÃO NORMAL
         with a5: exibir_aba_certificados(False)
         with a6: exibir_aba_notas(False)
-}
