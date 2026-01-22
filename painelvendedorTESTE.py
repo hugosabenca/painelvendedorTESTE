@@ -84,7 +84,7 @@ def escrever_no_sheets(url, aba, df_novo, modo="append"):
         return False
 
 # ==============================================================================
-# FUNÇÕES DE FEEDBACK (NOVO)
+# FUNÇÕES DE FEEDBACK (ATUALIZADO)
 # ==============================================================================
 
 def ja_enviou_feedback(login):
@@ -94,12 +94,11 @@ def ja_enviou_feedback(login):
         return False
     
     if 'Login' in df.columns:
-        # Verifica se o login está na lista (remove espaços e poe em minusculo)
         logins_existentes = df['Login'].astype(str).str.strip().str.lower().tolist()
         return str(login).strip().lower() in logins_existentes
     return False
 
-def salvar_feedback(login, nome, satisfacao, menos_usada, sugestao):
+def salvar_feedback(login, nome, satisfacao, dispositivo, menos_usada, remover, sugestao):
     try:
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
         df_novo = pd.DataFrame([{
@@ -107,7 +106,9 @@ def salvar_feedback(login, nome, satisfacao, menos_usada, sugestao):
             "Login": login,
             "Nome": nome,
             "Satisfacao": satisfacao,
+            "Dispositivo": dispositivo,
             "Aba_Menos_Usada": menos_usada,
+            "Abas_Remover": remover,
             "Sugestao": sugestao
         }])
         return escrever_no_sheets(URL_SISTEMA, "Feedback_Vendedores", df_novo, modo="append")
@@ -620,6 +621,7 @@ def exibir_aba_estoque():
         busca = st.text_input("Buscar (aperte enter após digitar):")
 
     # CHECKBOX DE FILTRO DE DISPONIBILIDADE
+    # Título principal + Caption abaixo (para fonte menor)
     somente_disp = st.checkbox("Somente Disponível")
     st.caption("(marque para mostrar somente itens que possuem saldo disponível maior que zero)")
 
@@ -1235,15 +1237,22 @@ else:
             
             with st.form("form_feedback"):
                 q1 = st.radio("O que tem achado do Painel?", ["Excelente", "Bom", "Regular", "Ruim"], horizontal=True)
-                q2 = st.radio("Qual aba você menos utiliza?", ["Itens Programados", "Crédito", "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais", "Uso todas"])
-                q3 = st.text_area("Alguma sugestão de melhoria? (Opcional)")
+                q2 = st.radio("Você acessa o painel preferencialmente por onde?", ["Computador", "Celular", "Tablet"], horizontal=True)
+                q3 = st.radio("Qual aba você menos utiliza?", ["Itens Programados", "Crédito", "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais", "Uso todas"])
+                
+                # Nova Pergunta Múltipla Escolha
+                q4 = st.multiselect("Qual/Quais aba(s) você acha que poderia(m) ser removida(s) pois não terá muita utilização?", ["Itens Programados", "Crédito", "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais", "Nenhuma"])
+                
+                q5 = st.text_area("Alguma sugestão de melhoria? (Opcional)")
                 
                 if st.form_submit_button("Enviar Respostas", type="primary"):
-                    # Salva usando login e nome completo
                     login_save = st.session_state.get('usuario_login', st.session_state['usuario_filtro'])
                     nome_save = st.session_state['usuario_filtro']
                     
-                    if salvar_feedback(login_save, nome_save, q1, q2, q3):
+                    # Converte a lista do multiselect para string
+                    remocao_str = ", ".join(q4)
+                    
+                    if salvar_feedback(login_save, nome_save, q1, q2, q3, remocao_str, q5):
                         st.session_state['feedback_enviado'] = True
                         st.success("Obrigado pelo feedback! Carregando o painel...")
                         time.sleep(1.5)
