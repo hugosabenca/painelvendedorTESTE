@@ -8,6 +8,8 @@ import altair as alt
 import time
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 from streamlit_extras.let_it_rain import rain
+import requests
+from streamlit_lottie import st_lottie
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E URLS
@@ -1260,17 +1262,20 @@ if not st.session_state['logado']:
                 else: st.warning("Preencha tudo.")
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
-        # --- CARNAVAL (CONFIGURAÇÃO LIMPA) ---
-        try:
-            rain(
-                emoji="🎭", # Escolhi a máscara pois é o símbolo maior do carnaval
-                font_size=60, # Tamanho bom para ver os detalhes
-                falling_speed=6, # Velocidade natural
-                animation_length="infinite",
-            )
-        except:
-            pass
-        # -------------------------------------
+        # --- CARNAVAL COM LOTTIE (ANIMAÇÃO ELEGANTE) ---
+        def load_lottieurl(url):
+            r = requests.get(url)
+            if r.status_code != 200:
+                return None
+            return r.json()
+
+        # URL de uma animação de Carnaval/Festa (Máscaras e Confete)
+        # Você pode trocar esse link por outros do site lottiefiles.com
+        lottie_carnaval = load_lottieurl("https://lottie.host/9d365691-5f25-4658-bb18-7b9ebba95364/eWB9O9J8QY.json")
+        
+        if lottie_carnaval:
+            st_lottie(lottie_carnaval, height=200, key="carnaval")
+        # ---------------------------------------------
         st.title("🔒 Login - Painel Dox")
         c1, c2, c3 = st.columns([1, 1, 2])
         with c1:
