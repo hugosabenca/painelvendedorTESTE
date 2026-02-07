@@ -1260,14 +1260,32 @@ if not st.session_state['logado']:
                 else: st.warning("Preencha tudo.")
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
-        # --- CÓDIGO DO CARNAVAL ---
-        rain(
-            emoji=["🎉", "🎊", "🎭"],
-            font_size=54,
-            falling_speed=5,
-            animation_length="infinite",
-        )
-        # --------------------------
+        # --- CÓDIGO DO CARNAVAL CORRIGIDO (3 CAMADAS) ---
+        try:
+            # Camada 1: Confete de Festa
+            rain(
+                emoji="🎉",
+                font_size=40, # Diminuí um pouco para não ficar gigante
+                falling_speed=5,
+                animation_length="infinite",
+            )
+            # Camada 2: Bola de Confete
+            rain(
+                emoji="🎊",
+                font_size=40,
+                falling_speed=6, # Velocidade diferente para dar dinamismo
+                animation_length="infinite",
+            )
+            # Camada 3: Máscara
+            rain(
+                emoji="🎭",
+                font_size=40,
+                falling_speed=7,
+                animation_length="infinite",
+            )
+        except:
+            pass
+        # -----------------------------------------------
         st.title("🔒 Login - Painel Dox")
         c1, c2, c3 = st.columns([1, 1, 2])
         with c1:
