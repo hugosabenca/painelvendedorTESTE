@@ -1263,7 +1263,7 @@ if not st.session_state['logado']:
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
         # =================================================================
-        # TELA DE LOGIN AJUSTADA (CAMPOS MENORES)
+        # TELA DE LOGIN: ALINHADA À ESQUERDA E ESTREITA
         # =================================================================
         
         # 1. EFEITO CARNAVAL
@@ -1281,7 +1281,7 @@ if not st.session_state['logado']:
 
         lottie_carnaval = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_u4yrau.json")
 
-        # 3. LAYOUT GERAL (Esquerda e Direita)
+        # 3. DIVISÃO DA TELA (ESQUERDA vs DIREITA)
         col_esquerda, col_direita = st.columns([1.5, 1]) 
 
         # --- LADO ESQUERDO ---
@@ -1289,19 +1289,20 @@ if not st.session_state['logado']:
             st.title("🔒 Login - Painel Dox")
             st.markdown("---")
             
-            # >>> AQUI ESTÁ O TRUQUE PARA DIMINUIR OS CAMPOS <<<
-            # Criamos 3 sub-colunas: [Vazio, CAMPOS, Vazio]
-            # O '3' no meio define a largura. Se quiser menor, diminua o 3. Se quiser maior, aumente.
-            c_vazio1, c_form, c_vazio2 = st.columns([1, 3, 1]) 
+            # >>> AQUI ESTÁ O AJUSTE DE ALINHAMENTO <<<
+            # Criamos apenas 2 colunas: [FORMULÁRIO, VAZIO]
+            # Como a primeira é o formulário, ele fica colado na esquerda (alinhado com o título).
+            # O [1, 1.5] significa que o vazio é maior que o formulário, deixando o campo bem estreito.
+            c_form, c_vazio = st.columns([1, 1.5]) 
             
             with c_form:
-                # Agora os inputs ficam presos nessa coluna do meio (mais estreita)
+                # Inputs e Botões ficam aqui, alinhados à esquerda
                 u = st.text_input("Login", placeholder="Usuário").strip()
                 s = st.text_input("Senha", type="password", placeholder="Senha").strip()
                 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # Botões dentro da área estreita também
+                # Botões (também alinhados à esquerda dentro do espaço estreito)
                 c_btn1, c_btn2 = st.columns(2)
                 with c_btn1:
                     if st.button("Acessar", type="primary", use_container_width=True):
@@ -1332,7 +1333,7 @@ if not st.session_state['logado']:
                         st.session_state['fazendo_cadastro'] = True
                         st.rerun()
 
-        # --- LADO DIREITO ---
+        # --- LADO DIREITO (ANIMAÇÃO) ---
         with col_direita:
             st.markdown("<br><br>", unsafe_allow_html=True)
             if lottie_carnaval:
