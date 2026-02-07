@@ -1263,12 +1263,12 @@ if not st.session_state['logado']:
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
         # =================================================================
-        # TELA DE LOGIN: ALINHADA À ESQUERDA E ESTREITA
+        # TELA DE LOGIN: SEM LINHA, ALINHADA À ESQUERDA E ESTREITA
         # =================================================================
         
         # 1. EFEITO CARNAVAL
         try:
-            rain(emoji="🎭", font_size=60, falling_speed=6, animation_length="infinite")
+            rain(emoji="🎭", font_size=50, falling_speed=6, animation_length="infinite")
         except: pass
 
         # 2. CARREGAR ANIMAÇÃO
@@ -1287,26 +1287,24 @@ if not st.session_state['logado']:
         # --- LADO ESQUERDO ---
         with col_esquerda:
             st.title("🔒 Login - Painel Dox")
-            st.markdown("---")
+            # (A linha divisória foi removida daqui)
             
-            # >>> AQUI ESTÁ O AJUSTE DE ALINHAMENTO <<<
-            # Criamos apenas 2 colunas: [FORMULÁRIO, VAZIO]
-            # Como a primeira é o formulário, ele fica colado na esquerda (alinhado com o título).
-            # O [1, 1.5] significa que o vazio é maior que o formulário, deixando o campo bem estreito.
+            # Layout: [FORMULÁRIO, VAZIO]
+            # O formulário fica colado na esquerda e estreito
             c_form, c_vazio = st.columns([1, 1.5]) 
             
             with c_form:
-                # Inputs e Botões ficam aqui, alinhados à esquerda
+                # Inputs e Botões
                 u = st.text_input("Login", placeholder="Usuário").strip()
                 s = st.text_input("Senha", type="password", placeholder="Senha").strip()
                 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # Botões (também alinhados à esquerda dentro do espaço estreito)
+                # Botões
                 c_btn1, c_btn2 = st.columns(2)
                 with c_btn1:
                     if st.button("Acessar", type="primary", use_container_width=True):
-                        # Lógica de validação
+                        # Validação
                         df = carregar_usuarios()
                         if df.empty: st.error("Erro de conexão.")
                         elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
