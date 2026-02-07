@@ -1262,25 +1262,27 @@ if not st.session_state['logado']:
                 else: st.warning("Preencha tudo.")
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
-        # --- CARNAVAL COM LOTTIE (VERIFICADO) ---
+        # --- CARNAVAL COM LOTTIE (CORRIGIDO) ---
         def load_lottieurl(url):
             try:
-                r = requests.get(url, timeout=5) # Tenta baixar com limite de 5s
+                # O "headers" finge que é um navegador para o site não bloquear o download
+                r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
                 if r.status_code != 200:
                     return None
                 return r.json()
             except:
                 return None
 
-        # Link da Animação (Máscaras e Confete)
-        url_animacao = "https://lottie.host/9d365691-5f25-4658-bb18-7b9ebba95364/eWB9O9J8QY.json"
+        # Link alternativo (Confetes e Celebração)
+        url_animacao = "https://assets5.lottiefiles.com/packages/lf20_u4yrau.json"
+        
         lottie_carnaval = load_lottieurl(url_animacao)
         
         if lottie_carnaval:
-            st_lottie(lottie_carnaval, height=250, key="carnaval")
+            st_lottie(lottie_carnaval, height=200, key="carnaval")
         else:
-            # Se a animação falhar, mostra um texto festivo simples (Fallback)
-            st.markdown("<h1 style='text-align: center;'>🎭 Feliz Carnaval! 🎉</h1>", unsafe_allow_html=True)
+            # Fallback (Plano C): Se mesmo assim falhar, exibe apenas os emojis grandes
+            st.markdown("<h1 style='text-align: center;'>🎭 🎉 🎊</h1>", unsafe_allow_html=True)
         # ---------------------------------------------
         st.title("🔒 Login - Painel Dox")
         c1, c2, c3 = st.columns([1, 1, 2])
