@@ -7,3 +7,5 @@ oauth2client
 altair
 streamlit-aggrid
 streamlit-extras
+streamlit-lottie
+requests
