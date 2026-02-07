@@ -1262,10 +1262,25 @@ if not st.session_state['logado']:
                 else: st.warning("Preencha tudo.")
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
-        # --- CARNAVAL COM LOTTIE (CORRIGIDO) ---
+        # =================================================================
+        # NOVA TELA DE LOGIN (CARNAVAL + LAYOUT DIVIDIDO)
+        # =================================================================
+        
+        # 1. EFEITO DE CHUVA (Máscaras caindo)
+        try:
+            rain(
+                emoji="🎭", 
+                font_size=60,
+                falling_speed=6,
+                animation_length="infinite",
+            )
+        except:
+            pass
+
+        # 2. CONFIGURAÇÃO DA ANIMAÇÃO (Lado Direito)
         def load_lottieurl(url):
             try:
-                # O "headers" finge que é um navegador para o site não bloquear o download
+                # O 'headers' evita bloqueios de download
                 r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
                 if r.status_code != 200:
                     return None
@@ -1273,51 +1288,67 @@ if not st.session_state['logado']:
             except:
                 return None
 
-        # Link alternativo (Confetes e Celebração)
+        # Link da Animação (Festa/Confete)
         url_animacao = "https://assets5.lottiefiles.com/packages/lf20_u4yrau.json"
-        
         lottie_carnaval = load_lottieurl(url_animacao)
-        
-        if lottie_carnaval:
-            st_lottie(lottie_carnaval, height=200, key="carnaval")
-        else:
-            # Fallback (Plano C): Se mesmo assim falhar, exibe apenas os emojis grandes
-            st.markdown("<h1 style='text-align: center;'>🎭 🎉 🎊</h1>", unsafe_allow_html=True)
-        # ---------------------------------------------
-        st.title("🔒 Login - Painel Dox")
-        c1, c2, c3 = st.columns([1, 1, 2])
-        with c1:
-            u = st.text_input("Login").strip()
-            s = st.text_input("Senha", type="password").strip()
-            if st.button("Acessar", type="primary"):
-                # Agora usa a função com cache e retry logic
-                df = carregar_usuarios()
-                
-                if df.empty:
-                    # Se mesmo com 5 tentativas falhar, aí sim mostra erro
-                    st.error("Falha temporária de conexão com o Banco de Dados. Por favor, tente novamente em alguns segundos.")
-                elif 'Login' not in df.columns or 'Senha' not in df.columns:
-                    st.error("Erro técnico na validação do login. Contate o suporte.")
-                else:
-                    try:
-                        user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
-                        if not user.empty:
-                            d = user.iloc[0]
-                            st.session_state.update({
-                                'logado': True, 
-                                'usuario_nome': d['Nome Vendedor'].split()[0], 
-                                'usuario_filtro': d['Nome Vendedor'], 
-                                'usuario_email': d.get('Email', ''), 
-                                'usuario_tipo': d['Tipo'],
-                                'usuario_login': d['Login'] # Salva o login para o feedback
-                            })
-                            registrar_acesso(u, d['Nome Vendedor'])
-                            st.rerun()
-                        else: st.error("Dados incorretos.")
-                    except Exception as e:
-                        st.error("Erro ao processar login. Tente novamente.")
-            st.markdown("---")
-            if st.button("Solicitar Acesso"): st.session_state['fazendo_cadastro'] = True; st.rerun()
+
+        # 3. CRIAÇÃO DAS COLUNAS (ESQUERDA = LOGIN | DIREITA = ANIMAÇÃO)
+        col_esquerda, col_direita = st.columns([1.5, 1]) 
+
+        # --- CONTEÚDO DA ESQUERDA (FORMULÁRIO) ---
+        with col_esquerda:
+            st.title("🔒 Login - Painel Dox")
+            st.markdown("---") # Linha divisória
+            
+            # Campos de texto
+            u = st.text_input("Login", placeholder="Digite seu usuário").strip()
+            s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
+            
+            st.markdown("<br>", unsafe_allow_html=True) # Espaço extra
+
+            # Botões lado a lado
+            c_btn1, c_btn2 = st.columns(2)
+            with c_btn1:
+                if st.button("Acessar", type="primary", use_container_width=True):
+                    # --- LÓGICA DE VALIDAÇÃO (NÃO ALTERADA) ---
+                    df = carregar_usuarios()
+                    if df.empty:
+                        st.error("Falha de conexão. Tente novamente.")
+                    elif 'Login' not in df.columns or 'Senha' not in df.columns:
+                        st.error("Erro técnico.")
+                    else:
+                        try:
+                            user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
+                            if not user.empty:
+                                d = user.iloc[0]
+                                st.session_state.update({
+                                    'logado': True, 
+                                    'usuario_nome': d['Nome Vendedor'].split()[0], 
+                                    'usuario_filtro': d['Nome Vendedor'], 
+                                    'usuario_email': d.get('Email', ''), 
+                                    'usuario_tipo': d['Tipo'],
+                                    'usuario_login': d['Login']
+                                })
+                                registrar_acesso(u, d['Nome Vendedor'])
+                                st.rerun()
+                            else: 
+                                st.error("Login ou Senha incorretos.")
+                        except:
+                            st.error("Erro ao processar login.")
+            
+            with c_btn2:
+                if st.button("Solicitar Acesso", use_container_width=True): 
+                    st.session_state['fazendo_cadastro'] = True
+                    st.rerun()
+
+        # --- CONTEÚDO DA DIREITA (DESENHO) ---
+        with col_direita:
+            st.markdown("<br><br>", unsafe_allow_html=True) # Desce um pouco para alinhar
+            if lottie_carnaval:
+                st_lottie(lottie_carnaval, height=350, key="carnaval")
+            else:
+                # Se a animação falhar, mostra um emoji gigante
+                st.markdown("<h1 style='text-align: center; font-size: 80px;'>🎭</h1>", unsafe_allow_html=True)
 else:
     # --- BLOCO DE FEEDBACK OBRIGATÓRIO (NOVO) ---
     precisa_votar = False
