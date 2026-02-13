@@ -1392,53 +1392,110 @@ def exibir_aba_manutencao():
     with tab_indicadores:
         st.markdown("### 📊 Dashboard da Manutenção")
         
-        # Prepara os dados para os gráficos
-        if not df.empty:
-            # 1. Contagem por Máquina (Pareto)
-            contagem_maq = df['Maquina'].value_counts().reset_index()
-            contagem_maq.columns = ['Maquina', 'Qtd']
+        if df.empty:
+            st.warning("Sem dados para gerar indicadores.")
+        else:
+            # =========================================================
+            # 1. PROCESSAMENTO DOS DADOS (DATAS E HORAS)
+            # =========================================================
+            # Converte textos para data real
+            df['Inicio_Dt'] = pd.to_datetime(df['Data_Inicio'], format='%d/%m/%Y %H:%M', errors='coerce')
+            df['Fim_Dt'] = pd.to_datetime(df['Data_Fim'], format='%d/%m/%Y %H:%M', errors='coerce')
             
-            # 2. Contagem por Tipo de Problema
-            contagem_tipo = df['Tipo_Problema'].value_counts().reset_index()
-            contagem_tipo.columns = ['Tipo', 'Qtd']
+            # Para o Gráfico de Gantt: Se não tem data fim (está aberto), consideramos "Agora" para a barra aparecer
+            df['Fim_Visual'] = df['Fim_Dt'].fillna(datetime.now(FUSO_BR))
+            
+            # Calcula duração em Horas (para o Pareto de Tempo e MTTR)
+            # Só calcula para quem tem inicio e fim reais
+            df['Duracao_Horas'] = (df['Fim_Dt'] - df['Inicio_Dt']).dt.total_seconds() / 3600
+            
+            # =========================================================
+            # 2. INDICADORES KPI (MTTR / MTBF)
+            # =========================================================
+            df_concluido = df.dropna(subset=['Inicio_Dt', 'Fim_Dt'])
+            
+            # Cálculo MTTR (Média de horas por reparo)
+            mttr_val = df_concluido['Duracao_Horas'].mean() if not df_concluido.empty else 0
+            
+            # Cálculo MTBF (Estimativa: Horas totais do período / Qtd Quebras)
+            if len(df) > 1:
+                inicio_periodo = df['Inicio_Dt'].min()
+                fim_periodo = datetime.now(FUSO_BR)
+                horas_totais_calendario = (fim_periodo - inicio_periodo).total_seconds() / 3600
+                mtbf_val = horas_totais_calendario / len(df)
+            else:
+                mtbf_val = 0
 
-            # 3. Contagem por Status
-            contagem_status = df['Status'].value_counts().reset_index()
-            contagem_status.columns = ['Status', 'Qtd']
-
-            col_graf1, col_graf2 = st.columns(2)
-
-            with col_graf1:
-                st.markdown("**Máquinas com mais chamados (Pareto)**")
-                graf_maq = alt.Chart(contagem_maq).mark_bar().encode(
-                    x=alt.X('Qtd', title='Qtd Chamados'),
-                    y=alt.Y('Maquina', sort='-x', title=None), 
-                    color=alt.value('#0078D4'),
-                    tooltip=['Maquina', 'Qtd']
-                ).properties(height=300)
-                st.altair_chart(graf_maq, use_container_width=True)
-
-            with col_graf2:
-                st.markdown("**Tipos de Problema**")
-                graf_tipo = alt.Chart(contagem_tipo).mark_arc(innerRadius=60).encode(
-                    theta=alt.Theta(field="Qtd", type="quantitative"),
-                    color=alt.Color(field="Tipo", type="nominal", legend=alt.Legend(title="Tipo")),
-                    tooltip=['Tipo', 'Qtd']
-                ).properties(height=300)
-                st.altair_chart(graf_tipo, use_container_width=True)
+            # Exibe os Cartões
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Chamados Totais", len(df))
+            k2.metric("Concluídos", len(df_concluido))
+            k3.metric("MTTR (Tempo Médio)", f"{mttr_val:.1f} h", help="Média de horas que a máquina fica parada consertando.")
+            k4.metric("MTBF (Tempo Entre Falhas)", f"{mtbf_val:.1f} h", help="Em média, a cada quantas horas ocorre uma nova quebra.")
             
             st.divider()
-            st.markdown("**Status Geral dos Chamados**")
-            graf_status = alt.Chart(contagem_status).mark_bar().encode(
-                x=alt.X('Status', title=None),
-                y=alt.Y('Qtd', title='Quantidade'),
-                color=alt.Color('Status', scale=alt.Scale(domain=['Aberto', 'Em Andamento', 'Concluido'], range=['#d62728', '#ff7f0e', '#2ca02c'])),
-                tooltip=['Status', 'Qtd']
-            ).properties(height=200)
-            st.altair_chart(graf_status, use_container_width=True)
+
+            # =========================================================
+            # 3. NOVOS GRÁFICOS
+            # =========================================================
             
-        else:
-            st.warning("Sem dados suficientes para gerar gráficos.")
+            # --- A. GRÁFICO DE GANTT (LINHA DO TEMPO) ---
+            st.markdown("#### ⏳ Linha do Tempo de Paradas (Gantt)")
+            st.caption("Visualize quando cada máquina parou e quanto tempo ficou parada.")
+            
+            df_gantt = df.dropna(subset=['Inicio_Dt']).copy()
+            
+            if not df_gantt.empty:
+                gantt = alt.Chart(df_gantt).mark_bar().encode(
+                    x=alt.X('Inicio_Dt', title='Início'),
+                    x2='Fim_Visual', 
+                    y=alt.Y('Maquina', title=None),
+                    color=alt.Color('Tipo_Problema', legend=alt.Legend(title="Tipo")),
+                    tooltip=['Maquina', 'Tipo_Problema', 'Operador', 'Status']
+                ).properties(height=300)
+                st.altair_chart(gantt, use_container_width=True)
+            else:
+                st.info("Sem datas de início válidas para gerar o Gantt.")
+
+            st.divider()
+
+            col_g1, col_g2 = st.columns(2)
+
+            # --- B. PARETO DE TEMPO (HORAS PARADAS) ---
+            with col_g1:
+                st.markdown("#### 🕒 Horas Totais Paradas (Gargalo)")
+                st.caption("Quais máquinas ficaram mais tempo sem produzir?")
+                
+                # Agrupa e soma as horas
+                if not df_concluido.empty:
+                    df_horas = df_concluido.groupby('Maquina')['Duracao_Horas'].sum().reset_index()
+                    df_horas.columns = ['Maquina', 'Horas_Totais']
+                    
+                    graf_horas = alt.Chart(df_horas).mark_bar().encode(
+                        x=alt.X('Horas_Totais', title='Horas Paradas'),
+                        y=alt.Y('Maquina', sort='-x', title=None),
+                        color=alt.value('#d62728'), # Vermelho
+                        tooltip=['Maquina', 'Horas_Totais']
+                    ).properties(height=300)
+                    st.altair_chart(graf_horas, use_container_width=True)
+                else:
+                    st.info("Sem manutenções concluídas para calcular horas.")
+
+            # --- C. PARETO DE QUANTIDADE ---
+            with col_g2:
+                st.markdown("#### 🔢 Quantidade de Quebras")
+                st.caption("Quais máquinas quebram mais vezes?")
+                
+                df_qtd = df['Maquina'].value_counts().reset_index()
+                df_qtd.columns = ['Maquina', 'Qtd']
+                
+                graf_qtd = alt.Chart(df_qtd).mark_bar().encode(
+                    x=alt.X('Qtd', title='Nº de Chamados'),
+                    y=alt.Y('Maquina', sort='-x', title=None),
+                    color=alt.value('#0078D4'), # Azul
+                    tooltip=['Maquina', 'Qtd']
+                ).properties(height=300)
+                st.altair_chart(graf_qtd, use_container_width=True)
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state:
