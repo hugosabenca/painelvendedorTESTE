@@ -1353,16 +1353,16 @@ def exibir_aba_manutencao():
                     # 2. SEPARAÇÃO DE DATA E HORA (INÍCIO)
                     col_d_ini, col_h_ini = st.columns(2)
                     with col_d_ini:
-                        # Data Input (Padrão hoje)
-                        d_ini_input = st.date_input("Data Início", value=datetime.now(FUSO_BR))
+                        # Adicionei format="DD/MM/YYYY" aqui
+                        d_ini_input = st.date_input("Data Início", value=datetime.now(FUSO_BR), format="DD/MM/YYYY")
                     with col_h_ini:
-                        # Time Input (Padrão agora)
                         h_ini_input = st.time_input("Hora Início", value=datetime.now(FUSO_BR))
 
                     # 3. SEPARAÇÃO DE DATA E HORA (FIM)
                     col_d_fim, col_h_fim = st.columns(2)
                     with col_d_fim:
-                        d_fim_input = st.date_input("Data Fim (Conclusão)", value=datetime.now(FUSO_BR))
+                        # Adicionei format="DD/MM/YYYY" aqui também
+                        d_fim_input = st.date_input("Data Fim (Conclusão)", value=datetime.now(FUSO_BR), format="DD/MM/YYYY")
                     with col_h_fim:
                         h_fim_input = st.time_input("Hora Fim (Conclusão)", value=datetime.now(FUSO_BR))
                     
