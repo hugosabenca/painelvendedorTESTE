@@ -1350,7 +1350,6 @@ def exibir_aba_manutencao():
                     # 2. SEPARAÇÃO DE DATA E HORA (INÍCIO)
                     col_d_ini, col_h_ini = st.columns(2)
                     with col_d_ini:
-                        # Adicionei format="DD/MM/YYYY" aqui
                         d_ini_input = st.date_input("Data Início", value=datetime.now(FUSO_BR), format="DD/MM/YYYY")
                     with col_h_ini:
                         h_ini_input = st.time_input("Hora Início", value=datetime.now(FUSO_BR))
@@ -1358,7 +1357,6 @@ def exibir_aba_manutencao():
                     # 3. SEPARAÇÃO DE DATA E HORA (FIM)
                     col_d_fim, col_h_fim = st.columns(2)
                     with col_d_fim:
-                        # Adicionei format="DD/MM/YYYY" aqui também
                         d_fim_input = st.date_input("Data Fim (Conclusão)", value=datetime.now(FUSO_BR), format="DD/MM/YYYY")
                     with col_h_fim:
                         h_fim_input = st.time_input("Hora Fim (Conclusão)", value=datetime.now(FUSO_BR))
@@ -1371,9 +1369,6 @@ def exibir_aba_manutencao():
                         # Formata para string: "DD/MM/AAAA HH:MM"
                         str_inicio = f"{d_ini_input.strftime('%d/%m/%Y')} {h_ini_input.strftime('%H:%M')}"
                         str_fim = f"{d_fim_input.strftime('%d/%m/%Y')} {h_fim_input.strftime('%H:%M')}"
-                        
-                        # Se o status não for Concluido, as vezes não queremos salvar data fim ainda
-                        # Mas vamos salvar o que estiver na tela para simplificar.
                         
                         if atualizar_chamado_manutencao(id_real, novo_status, nova_prioridade, novo_mecanico, str_inicio, str_fim, nova_solucao):
                             st.success("✅ Chamado atualizado com sucesso!")
@@ -1395,15 +1390,17 @@ def exibir_aba_manutencao():
             # =========================================================
             # 1. PROCESSAMENTO DOS DADOS (DATAS E HORAS)
             # =========================================================
+            # CORREÇÃO 1: Pegamos agora SEM fuso horário para bater com a planilha
+            agora_sem_fuso = datetime.now(FUSO_BR).replace(tzinfo=None)
+
             # Converte textos para data real
             df['Inicio_Dt'] = pd.to_datetime(df['Data_Inicio'], format='%d/%m/%Y %H:%M', errors='coerce')
             df['Fim_Dt'] = pd.to_datetime(df['Data_Fim'], format='%d/%m/%Y %H:%M', errors='coerce')
             
-            # Para o Gráfico de Gantt: Se não tem data fim (está aberto), consideramos "Agora" para a barra aparecer
-            df['Fim_Visual'] = df['Fim_Dt'].fillna(datetime.now(FUSO_BR))
+            # Para o Gráfico de Gantt: Se não tem data fim, usamos "Agora" (sem fuso)
+            df['Fim_Visual'] = df['Fim_Dt'].fillna(agora_sem_fuso)
             
             # Calcula duração em Horas (para o Pareto de Tempo e MTTR)
-            # Só calcula para quem tem inicio e fim reais
             df['Duracao_Horas'] = (df['Fim_Dt'] - df['Inicio_Dt']).dt.total_seconds() / 3600
             
             # =========================================================
@@ -1417,7 +1414,8 @@ def exibir_aba_manutencao():
             # Cálculo MTBF (Estimativa: Horas totais do período / Qtd Quebras)
             if len(df) > 1:
                 inicio_periodo = df['Inicio_Dt'].min()
-                fim_periodo = datetime.now(FUSO_BR)
+                # CORREÇÃO 2: Usamos a variável sem fuso para subtrair
+                fim_periodo = agora_sem_fuso
                 horas_totais_calendario = (fim_periodo - inicio_periodo).total_seconds() / 3600
                 mtbf_val = horas_totais_calendario / len(df)
             else:
