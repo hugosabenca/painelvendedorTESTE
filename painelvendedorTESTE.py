@@ -1584,7 +1584,10 @@ if not st.session_state['logado']:
                                     registrar_acesso(u, d['Nome Vendedor'])
                                     st.rerun()
                                 else: st.error("Dados incorretos.")
-                            except: st.error("Erro no login.")
+                            # --- A CORREÇÃO ESTÁ AQUI EMBAIXO ---
+                            except Exception as e:
+                                # Usando 'Exception', o Python ignora o Rerun e deixa ele passar
+                                st.error(f"Erro no login: {e}")
                 
                 with c_btn2:
                     if st.button("Solicitar Acesso", use_container_width=True): 
