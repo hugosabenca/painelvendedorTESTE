@@ -381,6 +381,27 @@ def carregar_dados_titulos():
         return df
     return pd.DataFrame()
 
+@st.cache_data(ttl="1m", show_spinner=False)
+def carregar_dados_manutencao():
+    # Tenta ler a aba Dados_Manutencao
+    df = ler_com_retry(URL_SISTEMA, "Dados_Manutencao")
+    if df is None: return None
+    if not df.empty:
+        # Renomeia as colunas que vêm do Google Forms para facilitar
+        # O Forms geralmente cria "Carimbo de data/hora", "Qual a máquina?", etc.
+        # Vamos normalizar para não dar erro no código.
+        cols_atuais = df.columns.tolist()
+        mapa_colunas = {
+            cols_atuais[0]: "Data_Abertura", # A 1ª coluna é sempre o timestamp
+            cols_atuais[1]: "Maquina",
+            cols_atuais[2]: "Operador",
+            cols_atuais[3]: "Tipo_Problema",
+            cols_atuais[4]: "Descricao"
+        }
+        df = df.rename(columns=mapa_colunas)
+        return df
+    return pd.DataFrame()
+
 # ==============================================================================
 # FUNÇÕES DE ESCRITA
 # ==============================================================================
@@ -446,6 +467,39 @@ def salvar_solicitacao_nota(vendedor_nome, vendedor_email, nf_numero, filial):
             return True
         return False
     except: return False
+
+def atualizar_chamado_manutencao(row_index, status, prioridade, mecanico, inicio, fim, solucao):
+    try:
+        client = get_gspread_client_cached()
+        sheet = client.open_by_url(URL_SISTEMA)
+        worksheet = sheet.worksheet("Dados_Manutencao")
+        
+        # O índice da linha no Google Sheets é = index do dataframe + 2 
+        # (+1 pelo cabeçalho, +1 pq o google começa no 1 e o python no 0)
+        linha_sheet = row_index + 2
+        
+        # Atualiza as colunas de Gestão (F, G, H, I, J, K...)
+        # Ajuste as letras/números das colunas conforme sua planilha real
+        # Supondo: F=Status, G=Prioridade, H=Mecanico, I=Inicio, J=Fim, K=Solucao
+        
+        # Atualiza Status (Coluna 6 se for a F, ou conte na sua planilha)
+        # DICA: Se "Descricao" é a Coluna 5 (E), então Status é 6 (F), Prioridade 7 (G)...
+        
+        # Vamos enviar uma lista para atualizar a linha de uma vez nas colunas certas
+        # Ajuste o range conforme onde você escreveu os cabeçalhos na planilha
+        # Exemplo: Atualizando da coluna 6 (Status) até a 11 (Solucao)
+        
+        worksheet.update_cell(linha_sheet, 6, status)      # Coluna F
+        worksheet.update_cell(linha_sheet, 7, prioridade)  # Coluna G
+        worksheet.update_cell(linha_sheet, 8, mecanico)    # Coluna H
+        worksheet.update_cell(linha_sheet, 9, inicio)      # Coluna I
+        worksheet.update_cell(linha_sheet, 10, fim)        # Coluna J
+        worksheet.update_cell(linha_sheet, 11, solucao)    # Coluna K
+        
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}")
+        return False    
 
 def formatar_peso_brasileiro(valor):
     try:
@@ -1210,6 +1264,100 @@ def exibir_aba_notas(is_admin=False):
             st.rerun()
     else: st.info("Nenhum pedido encontrado.")
 
+def exibir_aba_manutencao():
+    st.subheader("🔧 Gestão de Manutenção (Chão de Fábrica)")
+    
+    if st.button("🔄 Atualizar Chamados"):
+        carregar_dados_manutencao.clear()
+        st.rerun()
+        
+    df = obter_dados_persistentes("cache_manutencao", carregar_dados_manutencao)
+    
+    if df.empty:
+        st.info("Nenhum chamado de manutenção registrado ainda.")
+        return
+
+    # --- KPI RÁPIDO ---
+    try:
+        total_abertos = len(df[df['Status'].str.lower() != 'concluido'])
+        total_geral = len(df)
+        c1, c2 = st.columns(2)
+        c1.metric("Chamados Abertos", total_abertos)
+        c2.metric("Total Histórico", total_geral)
+    except: pass
+    st.divider()
+
+    # --- TABELA DE CHAMADOS ---
+    st.markdown("### 📋 Fila de Chamados")
+    
+    # Filtro visual
+    filtro_status = st.radio("Visualizar:", ["Pendentes (Abertos/Andamento)", "Histórico Completo"], horizontal=True)
+    
+    if filtro_status == "Pendentes (Abertos/Andamento)":
+        # Mostra tudo que NÃO é Concluido
+        df_show = df[df['Status'].str.strip().str.lower() != 'concluido'].copy()
+    else:
+        df_show = df.copy()
+    
+    st.dataframe(
+        df_show, 
+        use_container_width=True,
+        column_config={
+            "Link_Foto": st.column_config.LinkColumn("Foto"),
+            "Status": st.column_config.Column("Status", help="Situação Atual"),
+        }
+    )
+    
+    st.divider()
+    
+    # --- ÁREA DE EDIÇÃO (GESTÃO) ---
+    st.markdown("### 🛠️ Atuar no Chamado (Dar Baixa)")
+    
+    # Cria uma lista de chamados para selecionar (Data + Maquina + Problema)
+    # Filtra apenas os não concluidos para editar (ou permite editar todos se quiser)
+    df_pendentes = df[df['Status'].str.strip().str.lower() != 'concluido'].reset_index()
+    
+    if df_pendentes.empty:
+        st.success("Tudo limpo! Nenhuma manutenção pendente.")
+    else:
+        lista_opcoes = df_pendentes.apply(lambda x: f"ID {x['index']} | {x['Data_Abertura']} | {x['Maquina']} | {x['Descricao']}", axis=1).tolist()
+        escolha = st.selectbox("Selecione o chamado para editar:", lista_opcoes)
+        
+        if escolha:
+            # Pega o ID (index original do dataframe geral) que está escondido na string
+            id_real = int(escolha.split("|")[0].replace("ID", "").strip())
+            
+            # Pega os dados atuais dessa linha
+            linha_atual = df.loc[id_real]
+            
+            with st.form("form_manutencao"):
+                st.info(f"Editando: **{linha_atual['Maquina']}** - {linha_atual['Descricao']}")
+                
+                c_m1, c_m2, c_m3 = st.columns(3)
+                with c_m1:
+                    novo_status = st.selectbox("Status", ["Aberto", "Em Andamento", "Concluido"], index=0)
+                with c_m2:
+                    nova_prioridade = st.selectbox("Prioridade", ["Baixa", "Media", "Alta"], index=1)
+                with c_m3:
+                    novo_mecanico = st.text_input("Mecânico Responsável", value=str(linha_atual.get('Mecanico', '')))
+                
+                c_d1, c_d2 = st.columns(2)
+                with c_d1:
+                    data_ini = st.text_input("Data/Hora Início (Ex: 10/02 14:00)", value=str(linha_atual.get('Data_Inicio', '')))
+                with c_d2:
+                    data_fim = st.text_input("Data/Hora Fim (Ex: 10/02 16:00)", value=str(linha_atual.get('Data_Fim', '')))
+                
+                nova_solucao = st.text_area("Solução Aplicada / Observações", value=str(linha_atual.get('Solucao', '')))
+                
+                if st.form_submit_button("💾 Salvar Alterações", type="primary"):
+                    if atualizar_chamado_manutencao(id_real, novo_status, nova_prioridade, novo_mecanico, data_ini, data_fim, nova_solucao):
+                        st.success("Chamado atualizado com sucesso!")
+                        carregar_dados_manutencao.clear()
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Erro ao atualizar planilha.")
+
 # --- SESSÃO ---
 if 'logado' not in st.session_state:
     st.session_state['logado'] = False
@@ -1355,17 +1503,20 @@ else:
                 st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     if st.session_state['usuario_tipo'].lower() == "admin":
-        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção"])
+        # Adicionei "🔧 Manutenção" na lista
+        a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
+        
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
-        with a3: exibir_aba_estoque() # <--- NOVA ABA
-        with a4: exibir_aba_fotos(True) # ADMIN COM ACESSO TOTAL
+        with a3: exibir_aba_estoque()
+        with a4: exibir_aba_fotos(True)
         with a5: st.dataframe(carregar_solicitacoes(), use_container_width=True)
         with a6: exibir_aba_certificados(True)
         with a7: exibir_aba_notas(True) 
         with a8: st.dataframe(carregar_logs_acessos(), use_container_width=True)
         with a9: exibir_aba_faturamento()
         with a10: exibir_aba_producao()
+        with a11: exibir_aba_manutencao() # <--- NOVA ABA AQUI
         
     elif st.session_state['usuario_tipo'].lower() == "master":
         a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
