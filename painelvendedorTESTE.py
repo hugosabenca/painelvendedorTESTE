@@ -7,9 +7,6 @@ import pytz
 import altair as alt
 import time
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
-from streamlit_extras.let_it_rain import rain
-import requests
-from streamlit_lottie import st_lottie
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E URLS
@@ -1507,6 +1504,7 @@ if 'logado' not in st.session_state:
 if 'fazendo_cadastro' not in st.session_state: st.session_state['fazendo_cadastro'] = False
 
 # --- LOGIN ---
+# --- LOGIN ---
 if not st.session_state['logado']:
     if st.session_state['fazendo_cadastro']:
         st.title("📝 Solicitação de Acesso")
@@ -1523,84 +1521,54 @@ if not st.session_state['logado']:
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
         # =================================================================
-        # TELA DE LOGIN: SEM LINHA, ALINHADA À ESQUERDA E ESTREITA
+        # TELA DE LOGIN: LIMPA E CORPORATIVA
         # =================================================================
         
-        # 1. EFEITO CARNAVAL
-        try:
-            rain(emoji="🎭", font_size=50, falling_speed=6, animation_length="infinite")
-        except: pass
+        # Centralizando o formulário usando colunas vazias nas laterais
+        col_esq, col_centro, col_dir = st.columns([1, 2, 1]) 
 
-        # 2. CARREGAR ANIMAÇÃO
-        def load_lottieurl(url):
-            try:
-                r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-                if r.status_code != 200: return None
-                return r.json()
-            except: return None
-
-        lottie_carnaval = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_u4yrau.json")
-
-        # 3. DIVISÃO DA TELA (ESQUERDA vs DIREITA)
-        col_esquerda, col_direita = st.columns([1.5, 1]) 
-
-        # --- LADO ESQUERDO ---
-        with col_esquerda:
+        with col_centro:
+            st.markdown("<br>", unsafe_allow_html=True) # Espaço para não colar no topo
             st.title("🔒 Login - Painel Dox")
-            # (A linha divisória foi removida daqui)
+            st.markdown("---")
             
-            # Layout: [FORMULÁRIO, VAZIO]
-            # O formulário fica colado na esquerda e estreito
-            c_form, c_vazio = st.columns([1, 1.5]) 
+            # Inputs
+            u = st.text_input("Login", placeholder="Digite seu usuário").strip()
+            s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
             
-            with c_form:
-                # Inputs e Botões
-                u = st.text_input("Login", placeholder="Usuário").strip()
-                s = st.text_input("Senha", type="password", placeholder="Senha").strip()
-                
-                st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
 
-                # Botões
-                c_btn1, c_btn2 = st.columns(2)
-                with c_btn1:
-                    if st.button("Acessar", type="primary", use_container_width=True):
-                        # Validação
-                        df = carregar_usuarios()
-                        if df.empty: st.error("Erro de conexão.")
-                        elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
-                        else:
-                            try:
-                                user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
-                                if not user.empty:
-                                    d = user.iloc[0]
-                                    st.session_state.update({
-                                        'logado': True, 
-                                        'usuario_nome': d['Nome Vendedor'].split()[0], 
-                                        'usuario_filtro': d['Nome Vendedor'], 
-                                        'usuario_email': d.get('Email', ''), 
-                                        'usuario_tipo': d['Tipo'],
-                                        'usuario_login': d['Login']
-                                    })
-                                    registrar_acesso(u, d['Nome Vendedor'])
-                                    st.rerun()
-                                else: st.error("Dados incorretos.")
-                            # --- A CORREÇÃO ESTÁ AQUI EMBAIXO ---
-                            except Exception as e:
-                                # Usando 'Exception', o Python ignora o Rerun e deixa ele passar
-                                st.error(f"Erro no login: {e}")
-                
-                with c_btn2:
-                    if st.button("Solicitar Acesso", use_container_width=True): 
-                        st.session_state['fazendo_cadastro'] = True
-                        st.rerun()
-
-        # --- LADO DIREITO (ANIMAÇÃO) ---
-        with col_direita:
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            if lottie_carnaval:
-                st_lottie(lottie_carnaval, height=300, key="carnaval")
-            else:
-                st.markdown("<h1 style='text-align: center; font-size: 80px;'>🎭</h1>", unsafe_allow_html=True)
+            # Botões
+            c_btn1, c_btn2 = st.columns(2)
+            with c_btn1:
+                if st.button("Acessar", type="primary", use_container_width=True):
+                    # Validação
+                    df = carregar_usuarios()
+                    if df.empty: st.error("Erro de conexão.")
+                    elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
+                    else:
+                        try:
+                            user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
+                            if not user.empty:
+                                d = user.iloc[0]
+                                st.session_state.update({
+                                    'logado': True, 
+                                    'usuario_nome': d['Nome Vendedor'].split()[0], 
+                                    'usuario_filtro': d['Nome Vendedor'], 
+                                    'usuario_email': d.get('Email', ''), 
+                                    'usuario_tipo': d['Tipo'],
+                                    'usuario_login': d['Login']
+                                })
+                                registrar_acesso(u, d['Nome Vendedor'])
+                                st.rerun()
+                            else: st.error("Dados incorretos.")
+                        except Exception as e:
+                            st.error(f"Erro no login: {e}")
+            
+            with c_btn2:
+                if st.button("Solicitar Acesso", use_container_width=True): 
+                    st.session_state['fazendo_cadastro'] = True
+                    st.rerun()
 else:
 
     with st.sidebar:
