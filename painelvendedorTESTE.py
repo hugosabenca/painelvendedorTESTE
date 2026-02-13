@@ -1521,14 +1521,14 @@ if not st.session_state['logado']:
             if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
     else:
         # =================================================================
-        # TELA DE LOGIN: LIMPA E CORPORATIVA
+        # TELA DE LOGIN: ALINHADA À ESQUERDA E COMPACTA
         # =================================================================
         
-        # Centralizando o formulário usando colunas vazias nas laterais
-        col_esq, col_centro, col_dir = st.columns([1, 2, 1]) 
+        # Cria duas colunas: A primeira estreita para o login, a segunda vazia para preencher o resto
+        col_login, col_vazia = st.columns([1, 2]) 
 
-        with col_centro:
-            st.markdown("<br>", unsafe_allow_html=True) # Espaço para não colar no topo
+        with col_login:
+            st.markdown("<br>", unsafe_allow_html=True) 
             st.title("🔒 Login - Painel Dox")
             st.markdown("---")
             
