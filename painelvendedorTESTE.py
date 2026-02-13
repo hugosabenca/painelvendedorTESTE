@@ -1267,7 +1267,8 @@ def exibir_aba_notas(is_admin=False):
 def exibir_aba_manutencao():
     st.subheader("🔧 Gestão de Manutenção (Chão de Fábrica)")
     
-    if st.button("🔄 Atualizar Chamados"):
+    # Botão de atualizar geral
+    if st.button("🔄 Atualizar Dados Manutenção"):
         carregar_dados_manutencao.clear()
         st.rerun()
         
@@ -1277,86 +1278,167 @@ def exibir_aba_manutencao():
         st.info("Nenhum chamado de manutenção registrado ainda.")
         return
 
-    # --- KPI RÁPIDO ---
-    try:
-        total_abertos = len(df[df['Status'].str.lower() != 'concluido'])
-        total_geral = len(df)
-        c1, c2 = st.columns(2)
-        c1.metric("Chamados Abertos", total_abertos)
-        c2.metric("Total Histórico", total_geral)
-    except: pass
-    st.divider()
+    # CRIAÇÃO DAS SUB-ABAS
+    tab_gestao, tab_indicadores = st.tabs(["🛠️ Controle de Chamados", "📊 Indicadores & Gráficos"])
 
-    # --- TABELA DE CHAMADOS ---
-    st.markdown("### 📋 Fila de Chamados")
-    
-    # Filtro visual
-    filtro_status = st.radio("Visualizar:", ["Pendentes (Abertos/Andamento)", "Histórico Completo"], horizontal=True)
-    
-    if filtro_status == "Pendentes (Abertos/Andamento)":
-        # Mostra tudo que NÃO é Concluido
-        df_show = df[df['Status'].str.strip().str.lower() != 'concluido'].copy()
-    else:
-        df_show = df.copy()
-    
-    st.dataframe(
-        df_show, 
-        use_container_width=True,
-        column_config={
-            "Link_Foto": st.column_config.LinkColumn("Foto"),
-            "Status": st.column_config.Column("Status", help="Situação Atual"),
-        }
-    )
-    
-    st.divider()
-    
-    # --- ÁREA DE EDIÇÃO (GESTÃO) ---
-    st.markdown("### 🛠️ Atuar no Chamado (Dar Baixa)")
-    
-    # Cria uma lista de chamados para selecionar (Data + Maquina + Problema)
-    # Filtra apenas os não concluidos para editar (ou permite editar todos se quiser)
-    df_pendentes = df[df['Status'].str.strip().str.lower() != 'concluido'].reset_index()
-    
-    if df_pendentes.empty:
-        st.success("Tudo limpo! Nenhuma manutenção pendente.")
-    else:
-        lista_opcoes = df_pendentes.apply(lambda x: f"ID {x['index']} | {x['Data_Abertura']} | {x['Maquina']} | {x['Descricao']}", axis=1).tolist()
-        escolha = st.selectbox("Selecione o chamado para editar:", lista_opcoes)
+    # =========================================================
+    # ABA 1: CONTROLE (OPERACIONAL)
+    # =========================================================
+    with tab_gestao:
+        st.markdown("### 📋 Fila de Chamados Pendentes")
         
-        if escolha:
-            # Pega o ID (index original do dataframe geral) que está escondido na string
-            id_real = int(escolha.split("|")[0].replace("ID", "").strip())
+        # Filtro visual da tabela
+        filtro_status = st.radio("Filtrar Tabela:", ["Pendentes (Abertos/Andamento)", "Histórico Completo"], horizontal=True)
+        
+        if filtro_status == "Pendentes (Abertos/Andamento)":
+            df_show = df[df['Status'].str.strip().str.lower() != 'concluido'].copy()
+        else:
+            df_show = df.copy()
+        
+        st.dataframe(
+            df_show, 
+            use_container_width=True,
+            column_config={
+                "Link_Foto": st.column_config.LinkColumn("Foto"),
+                "Status": st.column_config.Column("Status", help="Situação Atual"),
+                "Data_Abertura": st.column_config.DatetimeColumn("Abertura", format="D/M/Y H:m"),
+            }
+        )
+        
+        st.divider()
+        
+        # --- ÁREA DE EDIÇÃO (BAIXA DE CHAMADO) ---
+        st.markdown("### ✍️ Editar / Dar Baixa")
+        
+        # Lista apenas não concluídos para facilitar a vida do gestor
+        df_pendentes = df[df['Status'].str.strip().str.lower() != 'concluido'].reset_index()
+        
+        if df_pendentes.empty:
+            st.success("🎉 Tudo limpo! Nenhuma manutenção pendente.")
+        else:
+            # Cria lista legível para o selectbox
+            lista_opcoes = df_pendentes.apply(lambda x: f"ID {x['index']} | {x['Data_Abertura']} | {x['Maquina']} | {x['Descricao']}", axis=1).tolist()
+            escolha = st.selectbox("Selecione o chamado para atuar:", lista_opcoes)
             
-            # Pega os dados atuais dessa linha
-            linha_atual = df.loc[id_real]
+            if escolha:
+                # Pega o ID real
+                id_real = int(escolha.split("|")[0].replace("ID", "").strip())
+                linha_atual = df.loc[id_real]
+                
+                with st.form("form_manutencao_baixa"):
+                    st.info(f"Editando: **{linha_atual['Maquina']}** (Operador: {linha_atual['Operador']})")
+                    st.caption(f"Problema: {linha_atual['Descricao']}")
+                    
+                    # 1. Status e Prioridade e Mecânico
+                    c_m1, c_m2, c_m3 = st.columns(3)
+                    with c_m1:
+                        # Tenta manter o status atual se já existir, senão padrão é Aberto
+                        status_atual = linha_atual.get('Status', 'Aberto')
+                        lista_status = ["Aberto", "Em Andamento", "Concluido"]
+                        idx_status = lista_status.index(status_atual) if status_atual in lista_status else 0
+                        novo_status = st.selectbox("Status", lista_status, index=idx_status)
+                        
+                    with c_m2:
+                        prioridade_atual = linha_atual.get('Prioridade', 'Media')
+                        lista_prio = ["Baixa", "Media", "Alta"]
+                        idx_prio = lista_prio.index(prioridade_atual) if prioridade_atual in lista_prio else 1
+                        nova_prioridade = st.selectbox("Prioridade", lista_prio, index=idx_prio)
+                        
+                    with c_m3:
+                        novo_mecanico = st.text_input("Mecânico Responsável", value=str(linha_atual.get('Mecanico', '')))
+                    
+                    st.markdown("---")
+                    st.markdown("**⏱️ Apontamento de Horas**")
+
+                    # 2. SEPARAÇÃO DE DATA E HORA (INÍCIO)
+                    col_d_ini, col_h_ini = st.columns(2)
+                    with col_d_ini:
+                        # Data Input (Padrão hoje)
+                        d_ini_input = st.date_input("Data Início", value=datetime.now(FUSO_BR))
+                    with col_h_ini:
+                        # Time Input (Padrão agora)
+                        h_ini_input = st.time_input("Hora Início", value=datetime.now(FUSO_BR))
+
+                    # 3. SEPARAÇÃO DE DATA E HORA (FIM)
+                    col_d_fim, col_h_fim = st.columns(2)
+                    with col_d_fim:
+                        d_fim_input = st.date_input("Data Fim (Conclusão)", value=datetime.now(FUSO_BR))
+                    with col_h_fim:
+                        h_fim_input = st.time_input("Hora Fim (Conclusão)", value=datetime.now(FUSO_BR))
+                    
+                    st.markdown("---")
+                    nova_solucao = st.text_area("Solução Aplicada / Peças Trocadas", value=str(linha_atual.get('Solucao', '')))
+                    
+                    if st.form_submit_button("💾 Salvar Apontamento", type="primary"):
+                        # --- CONCATENAÇÃO DOS DADOS ANTES DE SALVAR ---
+                        # Formata para string: "DD/MM/AAAA HH:MM"
+                        str_inicio = f"{d_ini_input.strftime('%d/%m/%Y')} {h_ini_input.strftime('%H:%M')}"
+                        str_fim = f"{d_fim_input.strftime('%d/%m/%Y')} {h_fim_input.strftime('%H:%M')}"
+                        
+                        # Se o status não for Concluido, as vezes não queremos salvar data fim ainda
+                        # Mas vamos salvar o que estiver na tela para simplificar.
+                        
+                        if atualizar_chamado_manutencao(id_real, novo_status, nova_prioridade, novo_mecanico, str_inicio, str_fim, nova_solucao):
+                            st.success("✅ Chamado atualizado com sucesso!")
+                            carregar_dados_manutencao.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Erro ao conectar com a planilha.")
+
+    # =========================================================
+    # ABA 2: INDICADORES (DASHBOARD)
+    # =========================================================
+    with tab_indicadores:
+        st.markdown("### 📊 Dashboard da Manutenção")
+        
+        # Prepara os dados para os gráficos
+        if not df.empty:
+            # 1. Contagem por Máquina (Pareto)
+            contagem_maq = df['Maquina'].value_counts().reset_index()
+            contagem_maq.columns = ['Maquina', 'Qtd']
             
-            with st.form("form_manutencao"):
-                st.info(f"Editando: **{linha_atual['Maquina']}** - {linha_atual['Descricao']}")
-                
-                c_m1, c_m2, c_m3 = st.columns(3)
-                with c_m1:
-                    novo_status = st.selectbox("Status", ["Aberto", "Em Andamento", "Concluido"], index=0)
-                with c_m2:
-                    nova_prioridade = st.selectbox("Prioridade", ["Baixa", "Media", "Alta"], index=1)
-                with c_m3:
-                    novo_mecanico = st.text_input("Mecânico Responsável", value=str(linha_atual.get('Mecanico', '')))
-                
-                c_d1, c_d2 = st.columns(2)
-                with c_d1:
-                    data_ini = st.text_input("Data/Hora Início (Ex: 10/02 14:00)", value=str(linha_atual.get('Data_Inicio', '')))
-                with c_d2:
-                    data_fim = st.text_input("Data/Hora Fim (Ex: 10/02 16:00)", value=str(linha_atual.get('Data_Fim', '')))
-                
-                nova_solucao = st.text_area("Solução Aplicada / Observações", value=str(linha_atual.get('Solucao', '')))
-                
-                if st.form_submit_button("💾 Salvar Alterações", type="primary"):
-                    if atualizar_chamado_manutencao(id_real, novo_status, nova_prioridade, novo_mecanico, data_ini, data_fim, nova_solucao):
-                        st.success("Chamado atualizado com sucesso!")
-                        carregar_dados_manutencao.clear()
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("Erro ao atualizar planilha.")
+            # 2. Contagem por Tipo de Problema
+            contagem_tipo = df['Tipo_Problema'].value_counts().reset_index()
+            contagem_tipo.columns = ['Tipo', 'Qtd']
+
+            # 3. Contagem por Status
+            contagem_status = df['Status'].value_counts().reset_index()
+            contagem_status.columns = ['Status', 'Qtd']
+
+            col_graf1, col_graf2 = st.columns(2)
+
+            with col_graf1:
+                st.markdown("**Máquinas com mais chamados (Pareto)**")
+                graf_maq = alt.Chart(contagem_maq).mark_bar().encode(
+                    x=alt.X('Qtd', title='Qtd Chamados'),
+                    y=alt.Y('Maquina', sort='-x', title=None), 
+                    color=alt.value('#0078D4'),
+                    tooltip=['Maquina', 'Qtd']
+                ).properties(height=300)
+                st.altair_chart(graf_maq, use_container_width=True)
+
+            with col_graf2:
+                st.markdown("**Tipos de Problema**")
+                graf_tipo = alt.Chart(contagem_tipo).mark_arc(innerRadius=60).encode(
+                    theta=alt.Theta(field="Qtd", type="quantitative"),
+                    color=alt.Color(field="Tipo", type="nominal", legend=alt.Legend(title="Tipo")),
+                    tooltip=['Tipo', 'Qtd']
+                ).properties(height=300)
+                st.altair_chart(graf_tipo, use_container_width=True)
+            
+            st.divider()
+            st.markdown("**Status Geral dos Chamados**")
+            graf_status = alt.Chart(contagem_status).mark_bar().encode(
+                x=alt.X('Status', title=None),
+                y=alt.Y('Qtd', title='Quantidade'),
+                color=alt.Color('Status', scale=alt.Scale(domain=['Aberto', 'Em Andamento', 'Concluido'], range=['#d62728', '#ff7f0e', '#2ca02c'])),
+                tooltip=['Status', 'Qtd']
+            ).properties(height=200)
+            st.altair_chart(graf_status, use_container_width=True)
+            
+        else:
+            st.warning("Sem dados suficientes para gerar gráficos.")
 
 # --- SESSÃO ---
 if 'logado' not in st.session_state:
