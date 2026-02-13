@@ -141,33 +141,6 @@ def obter_dados_persistentes(chave_sessao, funcao_carregamento):
 # FUNÇÕES DE FEEDBACK
 # ==============================================================================
 
-def ja_enviou_feedback(login):
-    # Usa retry padrão, mas retorna False se falhar para não travar
-    df = ler_com_retry(URL_SISTEMA, "Feedback_Vendedores", tentativas=3)
-    if df is None or df.empty:
-        return False
-    
-    if 'Login' in df.columns:
-        logins_existentes = df['Login'].astype(str).str.strip().str.lower().tolist()
-        return str(login).strip().lower() in logins_existentes
-    return False
-
-def salvar_feedback(login, nome, satisfacao, dispositivo, menos_usada, remover, sugestao):
-    try:
-        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-        df_novo = pd.DataFrame([{
-            "Data": agora_br,
-            "Login": login,
-            "Nome": nome,
-            "Satisfacao": satisfacao,
-            "Dispositivo": dispositivo,
-            "Aba_Menos_Usada": menos_usada,
-            "Abas_Remover": remover,
-            "Sugestao": sugestao
-        }])
-        return escrever_no_sheets(URL_SISTEMA, "Feedback_Vendedores", df_novo, modo="append")
-    except:
-        return False
 
 # ==============================================================================
 # FUNÇÕES DE FORMATAÇÃO E CORREÇÃO
@@ -1339,46 +1312,6 @@ if not st.session_state['logado']:
             else:
                 st.markdown("<h1 style='text-align: center; font-size: 80px;'>🎭</h1>", unsafe_allow_html=True)
 else:
-    # --- BLOCO DE FEEDBACK OBRIGATÓRIO (NOVO) ---
-    precisa_votar = False
-    
-    if st.session_state['usuario_tipo'].lower() == "vendedor":
-        # Verifica se já checamos nesta sessão para não ler o sheets toda hora
-        if 'feedback_enviado' not in st.session_state:
-             # Usa o login salvo na sessão
-             login_atual = st.session_state.get('usuario_login', st.session_state['usuario_filtro'])
-             st.session_state['feedback_enviado'] = ja_enviou_feedback(login_atual)
-        
-        if not st.session_state['feedback_enviado']:
-            st.markdown("### 👋 Olá! Antes de prosseguir...")
-            st.info("Para continuarmos evoluindo o Painel Dox, precisamos da sua opinião rápida. É obrigatório, mas leva menos de 1 minuto.")
-            
-            with st.form("form_feedback"):
-                q1 = st.radio("O que tem achado do Painel?", ["Excelente", "Bom", "Regular", "Ruim"], horizontal=True)
-                q2 = st.radio("Você acessa o painel preferencialmente por onde?", ["Computador", "Celular", "Tablet"], horizontal=True)
-                q3 = st.radio("Qual aba você menos utiliza?", ["Itens Programados", "Crédito", "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais", "Uso todas"])
-                
-                # Nova Pergunta Múltipla Escolha
-                q4 = st.multiselect("Qual/Quais aba(s) você acha que poderia(m) ser removida(s) pois não terá muita utilização?", ["Itens Programados", "Crédito", "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais", "Nenhuma"])
-                
-                q5 = st.text_area("Alguma sugestão de melhoria? (Opcional)")
-                
-                if st.form_submit_button("Enviar Respostas", type="primary"):
-                    login_save = st.session_state.get('usuario_login', st.session_state['usuario_filtro'])
-                    nome_save = st.session_state['usuario_filtro']
-                    
-                    # Converte a lista do multiselect para string
-                    remocao_str = ", ".join(q4)
-                    
-                    if salvar_feedback(login_save, nome_save, q1, q2, q3, remocao_str, q5):
-                        st.session_state['feedback_enviado'] = True
-                        st.success("Obrigado pelo feedback! Carregando o painel...")
-                        time.sleep(1.5)
-                        st.rerun()
-                    else:
-                        st.error("Erro ao salvar. Tente novamente.")
-            
-            st.stop() # Bloqueia o resto da execução até votar
 
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
