@@ -843,7 +843,7 @@ def exibir_carteira_pedidos():
         if filtro_filial != "Todas":
             df_total = df_total[df_total["Filial_Origem"] == filtro_filial]
         nome_filtro = st.session_state['usuario_filtro']
-        if tipo_usuario in ["admin", "gerente", "master"]:
+        if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
             vendedores_unicos = sorted(df_total["Vendedor Correto"].dropna().unique())
             filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos)
             if filtro_vendedor != "Todos": df_filtrado = df_total[df_total["Vendedor Correto"] == filtro_vendedor].copy()
@@ -864,7 +864,7 @@ def exibir_carteira_pedidos():
                 df_filtrado['Prazo'] = df_filtrado['Prazo_dt'].dt.strftime('%d/%m/%Y').fillna("-")
             except: pass
             colunas_visiveis = ["Número do Pedido", "Filial_Origem", "Cliente Correto", "Produto", "Peso (ton)", "Prazo", "Máquina/Processo"]
-            if tipo_usuario in ["admin", "gerente", "gerente comercial", "master"]: 
+            if tipo_usuario in ["admin", "gerente", "gerente comercial", "master", "logística", "logistica", "pcp"]: 
                 colunas_visiveis.insert(6, "Vendedor Correto")
                 if "Gerente Correto" in df_total.columns:
                     colunas_visiveis.insert(7, "Gerente Correto")
@@ -1636,6 +1636,24 @@ else:
         with a6: exibir_aba_notas(False)        
         with a7: exibir_aba_faturamento()
         with a8: exibir_aba_producao()
+
+    elif st.session_state['usuario_tipo'].lower() in ["logística", "logistica", "pcp"]:
+        a1, a2, a3, a4, a5 = st.tabs(["📂 Itens Programados", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+        with a1: exibir_carteira_pedidos()
+        with a2: exibir_aba_estoque()
+        with a3: exibir_aba_fotos(True) # Visão de gestão (vê tudo)
+        with a4: exibir_aba_certificados(True) # Visão de gestão (vê tudo)
+        with a5: exibir_aba_notas(True) # Visão de gestão (vê tudo)
+
+    elif st.session_state['usuario_tipo'].lower() in ["manutenção", "manutencao"]:
+        tabs_manu = st.tabs(["🔧 Manutenção"])
+        with tabs_manu[0]: exibir_aba_manutencao()
+
+    elif st.session_state['usuario_tipo'].lower() == "qualidade":
+        a1, a2, a3 = st.tabs(["📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+        with a1: exibir_aba_fotos(True) # Visão de gestão
+        with a2: exibir_aba_certificados(True) # Visão de gestão
+        with a3: exibir_aba_notas(True) # Visão de gestão    
         
     else:
         # Vendedores e Gerentes Padrão - ABA ESTOQUE ADICIONADA
