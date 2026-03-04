@@ -1616,7 +1616,7 @@ else:
                 st.session_state.update({'logado': False, 'usuario_nome': ""})
                 st.rerun()
         with col_btn2:
-            if st.button("🔄 Atualizar", use_container_width=True): 
+            if st.button("Atualizar", use_container_width=True): 
                 st.cache_data.clear()
                 st.rerun()
         
