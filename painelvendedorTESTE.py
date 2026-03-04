@@ -172,6 +172,7 @@ def carregar_usuarios():
     if df_users is not None and not df_users.empty: return df_users.astype(str)
     return pd.DataFrame()
 
+
 @st.cache_data(ttl="10m", show_spinner=False)
 def ler_dados_nuvem_generico(aba, url_planilha):
     df = ler_com_retry(url_planilha, aba)
@@ -310,6 +311,12 @@ def carregar_logs_acessos():
             except: pass
         return df
     return pd.DataFrame(columns=["Data", "Login", "Nome"])
+
+@st.cache_data(ttl="2m", show_spinner=False)
+def carregar_status_robo():
+    df = ler_com_retry(URL_SISTEMA, "Status_Robo", tentativas=2, espera=1)
+    if df is None: return None
+    return df
 
 @st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
@@ -1577,6 +1584,31 @@ else:
         texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
         st.markdown(f"<small><i>{texto_data}</i></small>", unsafe_allow_html=True)
         st.caption(f"Perfil: {st.session_state['usuario_tipo']}")
+        
+        # =========================================================
+        # STATUS DO SERVIDOR (ROBÔ)
+        # =========================================================
+        st.markdown("---")
+        df_status = obter_dados_persistentes("cache_status_robo", carregar_status_robo)
+        status_texto = "🔴 Servidor Offline" # Padrão é offline se der erro
+        
+        if isinstance(df_status, pd.DataFrame) and not df_status.empty and 'Ultima_Atualizacao' in df_status.columns:
+            try:
+                # Pega a data da planilha
+                ultima_att_str = str(df_status.iloc[0]['Ultima_Atualizacao'])
+                ultima_att_dt = datetime.strptime(ultima_att_str, '%d/%m/%Y %H:%M:%S')
+                ultima_att_dt = FUSO_BR.localize(ultima_att_dt) # Coloca no fuso do Brasil
+                
+                # Calcula a diferença em minutos
+                diferenca_minutos = (agora - ultima_att_dt).total_seconds() / 60
+                
+                if diferenca_minutos <= 25:
+                    status_texto = "🟢 Servidor Online"
+            except:
+                pass
+        
+        st.markdown(f"**{status_texto}**")
+        st.markdown("---")
         if st.button("Sair"): st.session_state.update({'logado': False, 'usuario_nome': ""}); st.rerun()
         st.divider()
         if st.button("🔄 Atualizar Dados"): 
