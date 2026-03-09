@@ -944,9 +944,9 @@ def popup_aviso_servidor():
     st.markdown("🔴 **Servidor Offline:** Houve uma perda temporária de comunicação com o servidor da Dox.")
     
     st.info("**O que muda quando o servidor estiver Offline?**\n\n"
-            "• Os dados do painel podem estar com alguns minutos de atraso.\n"
+            "• Os dados do painel podem estar com alguns minutos de atraso, e será normalizado até a conexão ser restabelecida.\n\n"
             "• Suas solicitações automáticas (**Certificados, Notas Fiscais e Fotos**) ficarão 'na fila'.\n\n"
-            "**Não precisa pedir de novo!** Assim que a conexão voltar, o sistema processará a fila e enviará tudo para o seu e-mail automaticamente.")
+            "• **Não precisa pedir de novo!** Assim que a conexão voltar, o sistema processará a fila e enviará tudo para o seu e-mail automaticamente.")
     
     if st.button("👍 Entendi e estou ciente", type="primary", use_container_width=True):
         # Registra na planilha
