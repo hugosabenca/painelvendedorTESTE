@@ -1584,7 +1584,7 @@ else:
         texto_data = f"{dias_semana[agora.weekday()]}, {agora.day} de {meses[agora.month]} de {agora.year}"
         
         # Juntamos a data e o perfil no mesmo bloco para economizar espaço
-        st.markdown(f"<small><i>{texto_data}</i><br>Perfil: {st.session_state['usuario_tipo']}</small>", unsafe_allow_html=True)
+        st.markdown(f"<small><i>{texto_data}</i><br><span style='color: gray;'>Perfil: {st.session_state['usuario_tipo']}</span></small>", unsafe_allow_html=True)
         
         # =========================================================
         # STATUS DO SERVIDOR (ROBÔ) - COMPACTO
