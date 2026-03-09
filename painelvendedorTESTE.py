@@ -312,6 +312,27 @@ def carregar_logs_acessos():
         return df
     return pd.DataFrame(columns=["Data", "Login", "Nome"])
 
+@st.cache_data(ttl="10m", show_spinner=False)
+def carregar_feedbacks_avisos():
+    df = ler_com_retry(URL_SISTEMA, "Feedback_Vendedores")
+    if df is None: return pd.DataFrame()
+    return df
+
+def registrar_ciencia_aviso(login, nome):
+    try:
+        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+        # Criamos a linha com os dados. 
+        # ATENÇÃO: Se as colunas da sua aba Feedback_Vendedores forem diferentes, ajuste a ordem aqui!
+        # Estou assumindo que as colunas são: Data | Login | Nome | Tipo_Aviso | Mensagem
+        nova_linha = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome, "Tipo_Aviso": "Status_Servidor", "Mensagem": "Ciente"}])
+        
+        if escrever_no_sheets(URL_SISTEMA, "Feedback_Vendedores", nova_linha, modo="append"):
+            carregar_feedbacks_avisos.clear()
+            return True
+        return False
+    except:
+        return False
+
 @st.cache_data(ttl="2m", show_spinner=False)
 def carregar_status_robo():
     df = ler_com_retry(URL_SISTEMA, "Status_Robo", tentativas=2, espera=1)
@@ -892,6 +913,26 @@ def exibir_carteira_pedidos():
             st.dataframe(df_exibicao, hide_index=True, use_container_width=True, column_config={"Prazo": st.column_config.TextColumn("Previsão"), "Filial_Origem": st.column_config.TextColumn("Filial")})
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
     else: st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
+
+@st.dialog("📡 Novo Recurso: Status do Servidor", width="large")
+def popup_aviso_servidor():
+    st.markdown(f"Olá, **{st.session_state['usuario_nome']}**!")
+    st.markdown("Adicionamos um novo indicador no seu menu lateral para mostrar a 'saúde' da nossa conexão com a fábrica em tempo real.")
+    
+    st.markdown("🟢 **Servidor Online:** Tudo normal! Dados atualizados.")
+    st.markdown("🔴 **Servidor Offline:** Houve uma perda temporária de comunicação com o servidor da Dox.")
+    
+    st.info("**O que muda quando o servidor estiver Offline?**\n\n"
+            "• Os dados do painel podem estar com alguns minutos de atraso.\n"
+            "• Suas solicitações automáticas (**Certificados, Notas Fiscais e Fotos**) ficarão 'na fila'.\n\n"
+            "**Não precisa pedir de novo!** Assim que a conexão voltar, o sistema processará a fila e enviará tudo para o seu e-mail automaticamente.")
+    
+    if st.button("👍 Entendi e estou ciente", type="primary", use_container_width=True):
+        # Registra na planilha
+        registrar_ciencia_aviso(st.session_state['usuario_login'], st.session_state['usuario_nome'])
+        # Marca na sessão para não abrir de novo hoje
+        st.session_state['viu_aviso_servidor'] = True
+        st.rerun()
 
 # --- DIALOG PARA EXIBIR TÍTULOS ---
 @st.dialog("Detalhes Financeiros", width="large")
@@ -1575,6 +1616,27 @@ if not st.session_state['logado']:
                     st.session_state['fazendo_cadastro'] = True
                     st.rerun()
 else:
+    # =========================================================
+    # VERIFICAÇÃO DO POP-UP DE AVISO (PASSO 3)
+    # =========================================================
+    if 'viu_aviso_servidor' not in st.session_state:
+        df_avisos = obter_dados_persistentes("cache_avisos", carregar_feedbacks_avisos)
+        ja_viu = False
+        
+        if isinstance(df_avisos, pd.DataFrame) and not df_avisos.empty:
+            # Verifica se as colunas necessárias existem para não dar erro
+            if 'Login' in df_avisos.columns and 'Tipo_Aviso' in df_avisos.columns:
+                # Procura se já tem uma linha com o Login dele e o Tipo de Aviso "Status_Servidor"
+                filtro = df_avisos[(df_avisos['Login'].str.lower() == st.session_state['usuario_login'].lower()) & 
+                                   (df_avisos['Tipo_Aviso'] == 'Status_Servidor')]
+                if not filtro.empty:
+                    ja_viu = True
+        
+        if not ja_viu:
+            popup_aviso_servidor()
+        else:
+            st.session_state['viu_aviso_servidor'] = True
+    # =========================================================
 
     with st.sidebar:
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
