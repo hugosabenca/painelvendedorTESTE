@@ -321,10 +321,19 @@ def carregar_feedbacks_avisos():
 def registrar_ciencia_aviso(login, nome):
     try:
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
-        # Criamos a linha com os dados. 
-        # ATENÇÃO: Se as colunas da sua aba Feedback_Vendedores forem diferentes, ajuste a ordem aqui!
-        # Estou assumindo que as colunas são: Data | Login | Nome | Tipo_Aviso | Mensagem
-        nova_linha = pd.DataFrame([{"Data": agora_br, "Login": login, "Nome": nome, "Tipo_Aviso": "Status_Servidor", "Mensagem": "Ciente"}])
+        # Estrutura com as 10 colunas exatas. As antigas de feedback ficam em branco ("").
+        nova_linha = pd.DataFrame([{
+            "Data": agora_br, 
+            "Login": login, 
+            "Nome": nome, 
+            "Satisfacao": "", 
+            "Dispositivo": "", 
+            "Aba_Menos_Usada": "", 
+            "Abas_Remover": "", 
+            "Sugestao": "", 
+            "Tipo_Aviso": "Status_Servidor", 
+            "Mensagem": "Ciente"
+        }])
         
         if escrever_no_sheets(URL_SISTEMA, "Feedback_Vendedores", nova_linha, modo="append"):
             carregar_feedbacks_avisos.clear()
@@ -916,6 +925,18 @@ def exibir_carteira_pedidos():
 
 @st.dialog("📡 Novo Recurso: Status do Servidor", width="large")
 def popup_aviso_servidor():
+    # Esse truque em HTML/CSS esconde o botão "X" (Close) no topo do pop-up
+    st.markdown(
+        """
+        <style>
+            button[aria-label="Close"] {
+                display: none !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
     st.markdown(f"Olá, **{st.session_state['usuario_nome']}**!")
     st.markdown("Adicionamos um novo indicador no seu menu lateral para mostrar a 'saúde' da nossa conexão com a fábrica em tempo real.")
     
@@ -923,9 +944,9 @@ def popup_aviso_servidor():
     st.markdown("🔴 **Servidor Offline:** Houve uma perda temporária de comunicação com o servidor da Dox.")
     
     st.info("**O que muda quando o servidor estiver Offline?**\n\n"
-            "• Os dados do painel podem estar com alguns minutos de atraso.\n\n"
+            "• Os dados do painel podem estar com alguns minutos de atraso.\n"
             "• Suas solicitações automáticas (**Certificados, Notas Fiscais e Fotos**) ficarão 'na fila'.\n\n"
-            "• **Não precisa pedir de novo!** Assim que a conexão voltar, o sistema processará a fila e enviará tudo para o seu e-mail automaticamente.")
+            "**Não precisa pedir de novo!** Assim que a conexão voltar, o sistema processará a fila e enviará tudo para o seu e-mail automaticamente.")
     
     if st.button("👍 Entendi e estou ciente", type="primary", use_container_width=True):
         # Registra na planilha
