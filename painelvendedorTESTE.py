@@ -21,11 +21,11 @@ FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
 # --- USANDO URLS COMPLETAS ---
 URL_SISTEMA = "https://docs.google.com/spreadsheets/d/1jODOp_SJUKWp1UaSmW_xJgkkyqDUexa56_P5QScAv3s/edit"
-URL_PINHEIRAL = "https://docs.google.com/spreadsheets/d/1DxTnEEh9VgbFyjqxYafdJ0-puSAIHYhZ6lo5wZTKDeg/edit"
+URL_PINHEIRAL = "https://docs.google.com/spreadsheets/d/1xl5MtcDbbMpa2-QxpehXWSXXNhA62vzEBLl59kVnAlQ/edit?hl=pt-br&gid=315472808#gid=315472808"
 URL_BICAS = "https://docs.google.com/spreadsheets/d/1zKZK0fpYl-UtHcYmFkZJtOO17fTqBWaJ39V2UOukack/edit"
 
 # --- LISTAS DE MÁQUINAS (ABAS) ---
-ABAS_PINHEIRAL = ["Fagor", "Esquadros", "Marafon", "Divimec (Slitter)", "Divimec (Rebaixamento)"]
+ABAS_PINHEIRAL = ["FAGOR", "ESQUADROS", "MARAFON", "DIVIMEC 1 REBAIXAMENTO", "DIVIMEC 1 SLITTER", "DIVIMEC 2 REBAIXAMENTO", "DIVIMEC 2 SLITTER", "ENDIREITADEIRA"]
 ABAS_BICAS = ["LCT Divimec", "LCT Ungerer", "LCL Divimec", "Divimec (RM)", "Servomaq", "Blanqueadeira", "Recorte", "Osciladora", "Maçarico"]
 
 try:
@@ -356,6 +356,20 @@ def carregar_dados_pedidos():
         df = ler_com_retry(URL_PINHEIRAL, aba, tentativas=2)
         if df is not None and not df.empty:
             df = df.astype(str)
+            
+            # --- TRADUTOR DO PCP ONLINE ---
+            # Transforma os nomes das colunas do PCP Online nos nomes que o Painel Dox já conhece
+            df = df.rename(columns={
+                "PEDIDO": "Número do Pedido",
+                "CLIENTE CORRETO": "Cliente Correto",
+                "PRODUTO": "Produto",
+                "QTDE": "Quantidade",
+                "PREVISÃO": "Prazo",
+                "VEND. CORRETO": "Vendedor Correto",
+                "GER. CORRETO": "Gerente Correto"
+            })
+            # ------------------------------
+            
             df['Máquina/Processo'] = aba
             df['Filial_Origem'] = "PINHEIRAL"
             cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
