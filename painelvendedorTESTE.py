@@ -368,7 +368,15 @@ def carregar_dados_pedidos():
                 "VEND. CORRETO": "Vendedor Correto",
                 "GER. CORRETO": "Gerente Correto"
             })
-            # ------------------------------
+            
+            # --- NOVO: FILTRO DE ITENS AGUARDANDO ---
+            # Garante que a coluna Prazo exista para não dar erro
+            if 'Prazo' in df.columns:
+                # 1. Tira tudo que for texto vazio ou só espaços
+                df = df[df['Prazo'].astype(str).str.strip() != ""]
+                # 2. Tira os "fantasmas" que o Pandas cria (nan, none, nat)
+                df = df[~df['Prazo'].astype(str).str.lower().isin(['nan', 'none', 'nat', 'null'])]
+            # ----------------------------------------
             
             df['Máquina/Processo'] = aba
             df['Filial_Origem'] = "PINHEIRAL"
