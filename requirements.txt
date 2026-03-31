@@ -9,3 +9,4 @@ streamlit-aggrid
 streamlit-extras
 streamlit-lottie
 requests
+xlsxwriter
