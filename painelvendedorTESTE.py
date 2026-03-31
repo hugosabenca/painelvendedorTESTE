@@ -1208,7 +1208,7 @@ def popup_aviso_carteira():
     st.markdown("Pensando sempre em facilitar o nosso dia a dia e dar cada vez mais autonomia e agilidade para vocês, informo que coloquei a nova aba **\"Carteira\"** no Painel Dox.")
     st.markdown("Ela foi desenhada para ser o seu centro de controle de pedidos em aberto, mas com uma melhoria que vai mudar a forma como vocês acompanham:")
     
-    st.info("🎯 **Visão de Transferências e Centro-Oeste**\n\nNós sabemos que historicamente sempre foi um 'ponto cego' e uma dificuldade enorme acompanhar os pedidos de transferência. Trabalhei em uma inteligência nova por trás do painel que agora **traduz automaticamente** esses pedidos. Ou seja, a partir de hoje, eles aparecerão normalmente na carteira de vocês, com as informações corretas. É uma **visão completa e mastigada que vocês nunca tiveram antes**, feita para que ninguém mais perca tempo caçando informações.")
+    st.info("Nós sabemos que historicamente sempre foi um 'ponto cego' e uma dificuldade enorme acompanhar os pedidos de transferência. Trabalhei em uma inteligência nova por trás do painel que agora **traduz automaticamente** esses pedidos. Ou seja, a partir de hoje, eles aparecerão normalmente na carteira de vocês, com as informações corretas.")
     
     st.markdown("**Importante:** Para que o foco seja 100% no acompanhamento da produção e faturamento, não incluí a filial de São Paulo nesta visão. A tela focará nas filiais produtivas (Pinheiral, Bicas, etc.).")
     
