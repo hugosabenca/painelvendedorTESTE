@@ -975,11 +975,20 @@ def exibir_aba_carteira_geral():
             df_filtrado = df_c.copy()
             
     elif tipo_usuario == "gerente comercial":
+        nome_busca = nome_filtro.lower().strip()
+        mask_gerente = pd.Series(False, index=df_c.index)
+        mask_vendedor = pd.Series(False, index=df_c.index)
+        
         if "GERENTE" in df_c.columns: 
             df_c["GERENTE_CLEAN"] = df_c["GERENTE"].astype(str).str.lower().str.strip()
-            df_filtrado = df_c[df_c["GERENTE_CLEAN"].str.contains(nome_filtro.lower().strip(), na=False)].copy()
-        else: 
-            df_filtrado = pd.DataFrame()
+            mask_gerente = df_c["GERENTE_CLEAN"].str.contains(nome_busca, na=False)
+            
+        if "VENDEDOR" in df_c.columns:
+            df_c["VENDEDOR_CLEAN"] = df_c["VENDEDOR"].astype(str).str.lower().str.strip()
+            mask_vendedor = df_c["VENDEDOR_CLEAN"].str.contains(nome_busca, regex=False, na=False)
+            
+        # O símbolo '|' significa "OU" (Junta o que ele é gerente com o que ele é vendedor)
+        df_filtrado = df_c[mask_gerente | mask_vendedor].copy()
             
     else: # Vendedores Padrão
         if "VENDEDOR" in df_c.columns:
@@ -1063,8 +1072,17 @@ def exibir_carteira_pedidos():
             if filtro_vendedor != "Todos": df_filtrado = df_total[df_total["Vendedor Correto"] == filtro_vendedor].copy()
             else: df_filtrado = df_total.copy()
         elif tipo_usuario == "gerente comercial":
-            if "Gerente Correto" in df_total.columns: df_filtrado = df_total[df_total["Gerente Correto"].str.lower() == nome_filtro.lower()].copy()
-            else: df_filtrado = pd.DataFrame()
+            nome_busca = nome_filtro.lower().strip()
+            mask_gerente = pd.Series(False, index=df_total.index)
+            mask_vendedor = pd.Series(False, index=df_total.index)
+            
+            if "Gerente Correto" in df_total.columns: 
+                mask_gerente = df_total["Gerente Correto"].astype(str).str.lower().str.strip().str.contains(nome_busca, na=False)
+                
+            if "Vendedor Correto" in df_total.columns:
+                mask_vendedor = df_total["Vendedor Correto"].astype(str).str.lower().str.strip().str.contains(nome_busca, regex=False, na=False)
+                
+            df_filtrado = df_total[mask_gerente | mask_vendedor].copy()
         else: 
             df_filtrado = df_total[df_total["Vendedor Correto"].str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
         if df_filtrado.empty: st.info(f"Nenhum pedido pendente encontrado para a filial selecionada.")
