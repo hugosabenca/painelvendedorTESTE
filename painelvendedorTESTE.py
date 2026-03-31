@@ -359,7 +359,7 @@ def carregar_feedbacks_avisos():
     if df is None: return pd.DataFrame()
     return df
 
-def registrar_ciencia_aviso(login, nome):
+def registrar_ciencia_aviso(login, nome, tipo_aviso="Status_Servidor"):
     try:
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
         # Estrutura com as 10 colunas exatas. As antigas de feedback ficam em branco ("").
@@ -372,7 +372,7 @@ def registrar_ciencia_aviso(login, nome):
             "Aba_Menos_Usada": "", 
             "Abas_Remover": "", 
             "Sugestao": "", 
-            "Tipo_Aviso": "Status_Servidor", 
+            "Tipo_Aviso": tipo_aviso, 
             "Mensagem": "Ciente"
         }])
         
@@ -1190,8 +1190,8 @@ def exibir_carteira_pedidos():
     else: 
         st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
 
-@st.dialog("📡 Novo Recurso: Status do Servidor", width="large")
-def popup_aviso_servidor():
+@st.dialog("🚀 Novidade no Painel Dox: Nova Aba 'Carteira'", width="large")
+def popup_aviso_carteira():
     # Esse truque em HTML/CSS esconde o botão "X" (Close) no topo do pop-up
     st.markdown(
         """
@@ -1204,22 +1204,27 @@ def popup_aviso_servidor():
         unsafe_allow_html=True
     )
     
-    st.markdown(f"Olá, **{st.session_state['usuario_nome']}**!")
-    st.markdown("Adicionamos um novo indicador no seu menu lateral para mostrar a 'saúde' da nossa conexão com a fábrica em tempo real.")
+    st.markdown(f"Olá, **{st.session_state['usuario_nome']}**! Tudo bem?")
+    st.markdown("Pensando sempre em facilitar o nosso dia a dia e dar cada vez mais autonomia e agilidade para vocês, informo que coloquei a nova aba **\"Carteira\"** no Painel Dox.")
+    st.markdown("Ela foi desenhada para ser o seu centro de controle de pedidos em aberto, mas com uma melhoria que vai mudar a forma como vocês acompanham:")
     
-    st.markdown("🟢 **Servidor Online:** Tudo normal! Dados atualizados.")
-    st.markdown("🔴 **Servidor Offline:** Houve uma perda temporária de comunicação com o servidor da Dox.")
+    st.info("🎯 **Visão de Transferências e Centro-Oeste**\n\nNós sabemos que historicamente sempre foi um 'ponto cego' e uma dificuldade enorme acompanhar os pedidos de transferência. Trabalhei em uma inteligência nova por trás do painel que agora **traduz automaticamente** esses pedidos. Ou seja, a partir de hoje, eles aparecerão normalmente na carteira de vocês, com as informações corretas. É uma **visão completa e mastigada que vocês nunca tiveram antes**, feita para que ninguém mais perca tempo caçando informações.")
     
-    st.info("**O que muda quando o servidor estiver Offline?**\n\n"
-            "• Os dados do painel podem estar com alguns minutos de atraso, e será normalizado até a conexão ser restabelecida.\n\n"
-            "• Suas solicitações automáticas (**Certificados, Notas Fiscais e Fotos**) ficarão 'na fila'.\n\n"
-            "• **Não precisa pedir de novo!** Assim que a conexão voltar, o sistema processará a fila e enviará tudo para o seu e-mail automaticamente.")
+    st.markdown("**Importante:** Para que o foco seja 100% no acompanhamento da produção e faturamento, não incluí a filial de São Paulo nesta visão. A tela focará nas filiais produtivas (Pinheiral, Bicas, etc.).")
+    
+    st.markdown("A regra de ouro para ler a sua carteira de forma rápida é olhar a coluna **LOTE**:")
+    st.markdown("✅ **Coluna LOTE preenchida:** Significa que o material já está pronto.\n\n⏳ **Coluna LOTE vazia:** O material ainda está pendente de produção.")
+    st.markdown("* **E quando fica pronto?** Basta ir na aba ao lado, *Itens Programados*, e verificar a previsão de data que se encontra lá.\n* **E se não estiver nos Itens Programados?** Significa que o PCP ainda não realizou a programação daquele item na máquina. Dessa forma, inicialmente pode ser considerado o **Lead Time** informado no e-mail de prazo.")
+    
+    st.success("📥 **Bônus: Exportação para Excel**\n\nPara quem deseja fazer seus próprios filtros, adicionei um botão **'Baixar Tabela (Excel)'** no final das tabelas das abas *Carteira* e *Itens Programados*. Com um clique, você baixa os dados que estiver visualizando na tela, já formatados perfeitamente para o Excel.")
+    
+    st.markdown("O sistema já está atualizado. Acessem, façam seus testes e aproveitem! Espero de verdade que essa nova visão ajude a poupar o tempo de vocês. Qualquer dúvida, estou à disposição.")
     
     if st.button("👍 Entendi e estou ciente", type="primary", use_container_width=True):
-        # Registra na planilha
-        registrar_ciencia_aviso(st.session_state['usuario_login'], st.session_state['usuario_nome'])
-        # Marca na sessão para não abrir de novo hoje
-        st.session_state['viu_aviso_servidor'] = True
+        # Registra na planilha avisando que ele viu a "Lancamento_Carteira"
+        registrar_ciencia_aviso(st.session_state['usuario_login'], st.session_state['usuario_nome'], "Lancamento_Carteira")
+        # Marca na sessão para não abrir de novo
+        st.session_state['viu_aviso_carteira'] = True
         st.rerun()
 
 # --- DIALOG PARA EXIBIR TÍTULOS ---
@@ -1905,28 +1910,29 @@ if not st.session_state['logado']:
                     st.rerun()
 else:
     # =========================================================
-    # VERIFICAÇÃO DO POP-UP DE AVISO (PASSO 3)
+    # VERIFICAÇÃO DO POP-UP DE AVISO: NOVA ABA CARTEIRA
     # =========================================================
-    if 'viu_aviso_servidor' not in st.session_state:
+    if 'viu_aviso_carteira' not in st.session_state:
         df_avisos = obter_dados_persistentes("cache_avisos", carregar_feedbacks_avisos)
         ja_viu = False
         
         if isinstance(df_avisos, pd.DataFrame) and not df_avisos.empty:
             # Verifica se as colunas necessárias existem para não dar erro
             if 'Login' in df_avisos.columns and 'Tipo_Aviso' in df_avisos.columns:
-                # Procura se já tem uma linha com o Login dele e o Tipo de Aviso "Status_Servidor"
+                # Procura se já tem uma linha com o Login dele e o Tipo de Aviso "Lancamento_Carteira"
                 filtro = df_avisos[(df_avisos['Login'].str.lower() == st.session_state['usuario_login'].lower()) & 
-                                   (df_avisos['Tipo_Aviso'] == 'Status_Servidor')]
+                                   (df_avisos['Tipo_Aviso'] == 'Lancamento_Carteira')]
                 if not filtro.empty:
                     ja_viu = True
         
         if not ja_viu:
-            popup_aviso_servidor()
+            popup_aviso_carteira()
         else:
-            st.session_state['viu_aviso_servidor'] = True
+            st.session_state['viu_aviso_carteira'] = True
     # =========================================================
 
     with st.sidebar:
+        # (O resto do seu código da barra lateral continua aqui embaixo normalmente...)
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         agora = datetime.now(FUSO_BR)
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
