@@ -931,25 +931,31 @@ def exibir_aba_carteira_geral():
     # LÓGICA DE TRADUÇÃO (O CÉREBRO)
     # =========================================================================
     
-    # 1. Separa a filial SAO PAULO para ser o nosso "Dicionário"
+    # 1. Identificar a coluna chave (Aceita PED/PROP SF ou PED/PROP SF2)
+    col_chave = 'PED/PROP SF'
+    if 'PED/PROP SF2' in df_c.columns:
+        col_chave = 'PED/PROP SF2'
+
+    # 2. Separa SAO PAULO para ser o Dicionário
     df_sp = df_c[df_c['FILIAL'] == 'SAO PAULO'].copy()
     
-    if not df_sp.empty and 'PEDIDO' in df_sp.columns:
-        # 2. Cria o dicionário usando a coluna PEDIDO como chave
-        df_sp_unique = df_sp.drop_duplicates(subset=['PEDIDO']).set_index('PEDIDO')[['CLIENTE', 'VENDEDOR', 'GERENTE']]
+    if not df_sp.empty and col_chave in df_sp.columns:
+        # Limpa as chaves para cruzamento exato
+        df_sp = df_sp[df_sp[col_chave].astype(str).str.strip() != '']
+        df_sp['CHAVE_SP'] = df_sp[col_chave].astype(str).str.strip().str.lstrip('0')
+        df_sp_unique = df_sp.drop_duplicates(subset=['CHAVE_SP']).set_index('CHAVE_SP')[['CLIENTE', 'VENDEDOR', 'GERENTE']]
         
-        # 3. Descobre quais linhas (das outras filiais) são de fato transferências da DOX
+        # 3. Acha as linhas das outras filiais que são DOX BRASIL
         df_c['CLIENTE_UPPER'] = df_c['CLIENTE'].astype(str).str.upper()
-        mask_dox = df_c['CLIENTE_UPPER'].str.contains("DOX BRASIL INDUSTRIA", na=False)
+        mask_dox = df_c['CLIENTE_UPPER'].str.contains("DOX BRASIL", na=False)
         
-        # 4. Pega a coluna "PED/PROP SF" apenas dessas linhas para buscar lá em SAO PAULO
-        ped_sf_keys = df_c.loc[mask_dox, 'PED/PROP SF'].astype(str).str.strip()
+        # 4. Pega as chaves da origem para traduzir
+        ped_sf_keys = df_c.loc[mask_dox, col_chave].astype(str).str.strip().str.lstrip('0')
         
-        # 5. Aplica a Tradução Vapt-Vupt
+        # 5. Aplica a Tradução
         for col in ['CLIENTE', 'VENDEDOR', 'GERENTE']:
             if col in df_sp_unique.columns:
                 mapped_values = ped_sf_keys.map(df_sp_unique[col])
-                # Substitui os dados "fantasmas" pelos dados reais de SAO PAULO
                 df_c.loc[mask_dox, col] = mapped_values.fillna(df_c.loc[mask_dox, col])
         
         df_c = df_c.drop(columns=['CLIENTE_UPPER'])
@@ -970,13 +976,15 @@ def exibir_aba_carteira_geral():
             
     elif tipo_usuario == "gerente comercial":
         if "GERENTE" in df_c.columns: 
-            df_filtrado = df_c[df_c["GERENTE"].astype(str).str.lower() == nome_filtro.lower()].copy()
+            df_c["GERENTE_CLEAN"] = df_c["GERENTE"].astype(str).str.lower().str.strip()
+            df_filtrado = df_c[df_c["GERENTE_CLEAN"].str.contains(nome_filtro.lower().strip(), na=False)].copy()
         else: 
             df_filtrado = pd.DataFrame()
             
     else: # Vendedores Padrão
         if "VENDEDOR" in df_c.columns:
-            df_filtrado = df_c[df_c["VENDEDOR"].astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
+            df_c["VENDEDOR_CLEAN"] = df_c["VENDEDOR"].astype(str).str.lower().str.strip()
+            df_filtrado = df_c[df_c["VENDEDOR_CLEAN"].str.contains(nome_filtro.lower().strip(), regex=False, na=False)].copy()
         else:
             df_filtrado = pd.DataFrame()
             
@@ -1005,10 +1013,12 @@ def exibir_aba_carteira_geral():
     df_show['PESO (TONS)'] = df_show['TONS_NUM'].apply(formatar_peso_brasileiro)
     df_show = df_show.rename(columns={"TONS": "TONS_ORIGINAL"}) # Proteção
     
-    # As colunas que você pediu + Vendedor (útil para os Gerentes/Logística)
+    # As colunas + Gerente (Para visão de gestão)
     colunas_visiveis = ["PEDIDO", "FILIAL", "CLIENTE", "LOTE", "PRODUTO", "PESO (TONS)", "STATUS"]
     if tipo_usuario in ["admin", "gerente", "gerente comercial", "master", "logística", "logistica", "pcp"]: 
         colunas_visiveis.insert(3, "VENDEDOR")
+        if "GERENTE" in df_show.columns:
+            colunas_visiveis.insert(4, "GERENTE")
 
     if texto_busca:
         mask = df_show.astype(str).apply(lambda x: x.str.contains(texto_busca, case=False, na=False)).any(axis=1)
@@ -1893,7 +1903,9 @@ else:
                 st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     if st.session_state['usuario_tipo'].lower() == "admin":
+        # Adicionei "📂 Carteira" no início (a0)
         a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
+        
         with a0: exibir_aba_carteira_geral()
         with a1: exibir_carteira_pedidos()
         with a2: exibir_aba_credito()
@@ -1936,7 +1948,7 @@ else:
         a1, a2, a3 = st.tabs(["📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
         with a1: exibir_aba_fotos(True) 
         with a2: exibir_aba_certificados(True) 
-        with a3: exibir_aba_notas(True)     
+        with a3: exibir_aba_notas(True)    
         
     else:
         # Vendedores e Gerentes Padrão
