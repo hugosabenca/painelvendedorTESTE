@@ -7,6 +7,7 @@ import pytz
 import altair as alt
 import time
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+import io
 
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E URLS
@@ -153,9 +154,45 @@ def converte_numero_seguro(valor):
     except:
         return 0.0
 
-def converter_df_para_csv_excel(df):
-    # Transforma a tabela do painel em um arquivo que o Excel brasileiro lê perfeitamente
-    return df.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')        
+def gerar_excel_formatado(df):
+    output = io.BytesIO()
+    
+    # Cria o arquivo Excel na memória usando o motor xlsxwriter
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Dados')
+        workbook = writer.book
+        worksheet = writer.sheets['Dados']
+        
+        # --- FORMATOS VISUAIS ---
+        # Formato do Cabeçalho (Azul corporativo, texto branco, negrito)
+        formato_cabecalho = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'vcenter',
+            'fg_color': '#002060', 
+            'font_color': 'white',
+            'border': 1
+        })
+        
+        # Formato de Texto (Impede o Excel de comer zeros e usar notação científica)
+        formato_texto = workbook.add_format({'num_format': '@'})
+        
+        # --- APLICANDO FORMATOS E LARGURAS ---
+        for col_num, nome_coluna in enumerate(df.columns.values):
+            # Pinta o cabeçalho
+            worksheet.write(0, col_num, nome_coluna, formato_cabecalho)
+            
+            # Calcula a largura ideal da coluna
+            tamanho_max = max(df[nome_coluna].astype(str).map(len).max(), len(str(nome_coluna))) + 2
+            
+            # Se for coluna sensível, aplica o formato de texto na coluna toda
+            colunas_sensiveis = ['PEDIDO', 'LOTE', 'Número do Pedido']
+            if nome_coluna in colunas_sensiveis:
+                worksheet.set_column(col_num, col_num, tamanho_max, formato_texto)
+            else:
+                worksheet.set_column(col_num, col_num, tamanho_max)
+                
+    return output.getvalue()        
 
 def formatar_br_decimal(valor, casas=3):
     try:
@@ -1063,14 +1100,14 @@ def exibir_aba_carteira_geral():
             }
         )
 
-        # --- NOVO: BOTÃO DE DOWNLOAD ---
+        # --- NOVO: BOTÃO DE DOWNLOAD EXCEL FORMATADO ---
         st.markdown("<br>", unsafe_allow_html=True)
-        csv_carteira = converter_df_para_csv_excel(df_show[cols_finais])
+        excel_carteira = gerar_excel_formatado(df_show[cols_finais])
         st.download_button(
             label="📥 Baixar Tabela (Excel)",
-            data=csv_carteira,
-            file_name=f"Carteira_Pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
+            data=excel_carteira,
+            file_name=f"Carteira_Pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="btn_down_carteira"
         )
 
@@ -1139,14 +1176,14 @@ def exibir_carteira_pedidos():
             
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
             
-            # --- NOVO: BOTÃO DE DOWNLOAD (Fica alinhado aqui!) ---
+            # --- NOVO: BOTÃO DE DOWNLOAD EXCEL FORMATADO ---
             st.markdown("<br>", unsafe_allow_html=True)
-            csv_itens = converter_df_para_csv_excel(df_exibicao)
+            excel_itens = gerar_excel_formatado(df_exibicao)
             st.download_button(
                 label="📥 Baixar Tabela (Excel)",
-                data=csv_itens,
-                file_name=f"Itens_Programados_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv",
+                data=excel_itens,
+                file_name=f"Itens_Programados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="btn_down_itens"
             )
             
