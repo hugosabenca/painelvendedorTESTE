@@ -1013,10 +1013,15 @@ def exibir_aba_carteira_geral():
     df_show['PESO (TONS)'] = df_show['TONS_NUM'].apply(formatar_peso_brasileiro)
     df_show = df_show.rename(columns={"TONS": "TONS_ORIGINAL"}) # Proteção
     
-    # As colunas + Gerente (Para visão de gestão)
+    # Configuração de Colunas Base
     colunas_visiveis = ["PEDIDO", "FILIAL", "CLIENTE", "LOTE", "PRODUTO", "PESO (TONS)", "STATUS"]
+    
+    # Adiciona a coluna Vendedor para todos os perfis de gestão (incluindo o gerente comercial)
     if tipo_usuario in ["admin", "gerente", "gerente comercial", "master", "logística", "logistica", "pcp"]: 
         colunas_visiveis.insert(3, "VENDEDOR")
+        
+    # Adiciona a coluna Gerente APENAS para os perfis de visão global (exclui o 'gerente comercial')
+    if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
         if "GERENTE" in df_show.columns:
             colunas_visiveis.insert(4, "GERENTE")
 
