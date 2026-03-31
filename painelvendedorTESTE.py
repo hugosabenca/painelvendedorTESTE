@@ -153,6 +153,10 @@ def converte_numero_seguro(valor):
     except:
         return 0.0
 
+def converter_df_para_csv_excel(df):
+    # Transforma a tabela do painel em um arquivo que o Excel brasileiro lê perfeitamente
+    return df.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')        
+
 def formatar_br_decimal(valor, casas=3):
     try:
         v = float(valor)
@@ -963,6 +967,12 @@ def exibir_aba_carteira_geral():
     # 6. Oculta SAO PAULO (Limpa a tabela final para exibir)
     df_c = df_c[df_c['FILIAL'] != 'SAO PAULO']
     
+    # --- NOVO: FILTRO DE FILIAL ---
+    lista_filiais = ["Todas"] + sorted(df_c['FILIAL'].dropna().unique().tolist())
+    filtro_filial = st.selectbox("Selecione a Filial:", lista_filiais, key="filial_carteira")
+    if filtro_filial != "Todas":
+        df_c = df_c[df_c['FILIAL'] == filtro_filial]
+
     # =========================================================================
     # APLICAÇÃO DE REGRAS DE PERFIL
     # =========================================================================
@@ -1053,6 +1063,17 @@ def exibir_aba_carteira_geral():
             }
         )
 
+        # --- NOVO: BOTÃO DE DOWNLOAD ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        csv_carteira = converter_df_para_csv_excel(df_show[cols_finais])
+        st.download_button(
+            label="📥 Baixar Tabela (Excel)",
+            data=csv_carteira,
+            file_name=f"Carteira_Pedidos_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            key="btn_down_carteira"
+        )
+
 def exibir_carteira_pedidos():
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     
@@ -1115,8 +1136,22 @@ def exibir_carteira_pedidos():
                 df_exibicao = df_final[mask]
             else: df_exibicao = df_final
             st.dataframe(df_exibicao, hide_index=True, use_container_width=True, column_config={"Prazo": st.column_config.TextColumn("Previsão"), "Filial_Origem": st.column_config.TextColumn("Filial")})
+            
             if texto_busca and df_exibicao.empty: st.warning(f"Nenhum resultado encontrado para '{texto_busca}'")
-    else: st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
+            
+            # --- NOVO: BOTÃO DE DOWNLOAD (Fica alinhado aqui!) ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            csv_itens = converter_df_para_csv_excel(df_exibicao)
+            st.download_button(
+                label="📥 Baixar Tabela (Excel)",
+                data=csv_itens,
+                file_name=f"Itens_Programados_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                key="btn_down_itens"
+            )
+            
+    else: 
+        st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
 
 @st.dialog("📡 Novo Recurso: Status do Servidor", width="large")
 def popup_aviso_servidor():
