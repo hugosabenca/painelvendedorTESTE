@@ -351,6 +351,11 @@ def carregar_status_robo():
 @st.cache_data(ttl="15m", show_spinner=False)
 def carregar_dados_pedidos():
     dados_consolidados = []
+    
+    # --- LISTA DE EMOJIS PARA REMOÇÃO FORÇADA ---
+    emojis_compostos = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', 
+                        '🔥', '⭐', '🔴', '🟡', '🟢', '🔵', '⏳', '🟫', '🟨', '⬜️', '🔗', '⚖️', '📡', '❌', '⏸️', '🔄', '☑️']
+
     # Pinheiral
     for aba in ABAS_PINHEIRAL:
         df = ler_com_retry(URL_PINHEIRAL, aba, tentativas=2)
@@ -358,7 +363,6 @@ def carregar_dados_pedidos():
             df = df.astype(str)
             
             # --- TRADUTOR DO PCP ONLINE ---
-            # Transforma os nomes das colunas do PCP Online nos nomes que o Painel Dox já conhece
             df = df.rename(columns={
                 "PEDIDO": "Número do Pedido",
                 "CLIENTE CORRETO": "Cliente Correto",
@@ -370,11 +374,8 @@ def carregar_dados_pedidos():
             })
             
             # --- NOVO: FILTRO DE ITENS AGUARDANDO ---
-            # Garante que a coluna Prazo exista para não dar erro
             if 'Prazo' in df.columns:
-                # 1. Tira tudo que for texto vazio ou só espaços
                 df = df[df['Prazo'].astype(str).str.strip() != ""]
-                # 2. Tira os "fantasmas" que o Pandas cria (nan, none, nat)
                 df = df[~df['Prazo'].astype(str).str.lower().isin(['nan', 'none', 'nat', 'null'])]
             # ----------------------------------------
             
@@ -382,12 +383,25 @@ def carregar_dados_pedidos():
             df['Filial_Origem'] = "PINHEIRAL"
             cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
             cols_existentes = [c for c in cols_necessarias if c in df.columns]
+            
             if "Vendedor Correto" in cols_existentes:
                 df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
+                
+                # --- NOVO: LAVA-JATO (REMOVEDOR DE EMOJIS) ---
+                colunas_sujas = ["Número do Pedido", "Cliente Correto", "Produto"]
+                for col in colunas_sujas:
+                    if col in df_limpo.columns:
+                        for e in emojis_compostos:
+                            df_limpo[col] = df_limpo[col].str.replace(e, '', regex=False)
+                        # Remove qualquer outro símbolo estranho e espaços duplos
+                        df_limpo[col] = df_limpo[col].str.replace(r'[^\w\s\.,\-\/\(\)]', '', regex=True).str.strip()
+                # ---------------------------------------------
+                
                 if "Número do Pedido" in df_limpo.columns:
                     df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
                 dados_consolidados.append(df_limpo)
         time.sleep(0.5)
+
     # Bicas
     for aba in ABAS_BICAS:
         df = ler_com_retry(URL_BICAS, aba, tentativas=2)
@@ -397,8 +411,20 @@ def carregar_dados_pedidos():
             df['Filial_Origem'] = "SJ BICAS"
             cols_necessarias = ["Número do Pedido", "Cliente Correto", "Produto", "Quantidade", "Prazo", "Vendedor Correto", "Gerente Correto"]
             cols_existentes = [c for c in cols_necessarias if c in df.columns]
+            
             if "Vendedor Correto" in cols_existentes:
                 df_limpo = df[cols_existentes + ['Máquina/Processo', 'Filial_Origem']].copy()
+                
+                # --- NOVO: LAVA-JATO (REMOVEDOR DE EMOJIS) ---
+                colunas_sujas = ["Número do Pedido", "Cliente Correto", "Produto"]
+                for col in colunas_sujas:
+                    if col in df_limpo.columns:
+                        for e in emojis_compostos:
+                            df_limpo[col] = df_limpo[col].str.replace(e, '', regex=False)
+                        # Remove qualquer outro símbolo estranho e espaços duplos
+                        df_limpo[col] = df_limpo[col].str.replace(r'[^\w\s\.,\-\/\(\)]', '', regex=True).str.strip()
+                # ---------------------------------------------
+                
                 if "Número do Pedido" in df_limpo.columns:
                     df_limpo["Número do Pedido"] = df_limpo["Número do Pedido"].str.replace(r'\.0$', '', regex=True).str.strip().str.zfill(6)
                 dados_consolidados.append(df_limpo)
