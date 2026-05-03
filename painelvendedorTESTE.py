@@ -1516,15 +1516,18 @@ def exibir_aba_fotos(is_admin=False):
     st.markdown("Selecione a filial e digite o número do Lote exato abaixo para solicitar fotos de materiais no armazém 20/24.")
     
     with st.form("form_foto"):
-        # MUDANÇA 1: Adicionado o "-" como primeira opção
-        filial_input = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS"])
+        # MUDANÇA: Criamos 3 colunas iguais [1, 1, 1] para colocar tudo na mesma linha
+        col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
         
-        col_f1, col_f2 = st.columns([1, 2])
-        with col_f1: lote_input = st.text_input("Lote:")
-        with col_f2: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''))
+        with col_f1: 
+            filial_input = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS"])
+        with col_f2: 
+            lote_input = st.text_input("Lote:")
+        with col_f3: 
+            email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''))
         
         if st.form_submit_button("Solicitar Fotos", type="primary"):
-            # MUDANÇA 2: Trava de segurança da filial
+            # Trava de segurança da filial
             if filial_input == "-":
                 st.warning("Por favor, selecione a filial do material.")
             elif not lote_input: 
