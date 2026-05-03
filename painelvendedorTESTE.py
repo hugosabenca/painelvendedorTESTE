@@ -1512,23 +1512,26 @@ def exibir_aba_credito():
 
 
 def exibir_aba_fotos(is_admin=False):
-    st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
+    st.subheader("📷 Solicitação de Fotos (Material em RDQ - Armazém 20 ou 24)")
     st.markdown("Selecione a filial e digite o número do Lote exato abaixo para solicitar fotos de materiais no armazém 20/24.")
     
     with st.form("form_foto"):
-        filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS"])
+        # MUDANÇA 1: Adicionado o "-" como primeira opção
+        filial_input = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS"])
         
         col_f1, col_f2 = st.columns([1, 2])
         with col_f1: lote_input = st.text_input("Lote:")
         with col_f2: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''))
         
         if st.form_submit_button("Solicitar Fotos", type="primary"):
-            if not lote_input: 
+            # MUDANÇA 2: Trava de segurança da filial
+            if filial_input == "-":
+                st.warning("Por favor, selecione a filial do material.")
+            elif not lote_input: 
                 st.warning("Digite o lote.")
             elif not email_input: 
                 st.warning("Preencha o e-mail.")
             else:
-                # Limpeza de espaços automática
                 lote_limpo = lote_input.strip()
                 if salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_limpo, filial_input): 
                     st.success(f"Solicitação do lote **{lote_limpo}** ({filial_input}) enviada!")
@@ -1545,7 +1548,7 @@ def exibir_aba_fotos(is_admin=False):
         else: st.info("Nenhum pedido de foto registrado.")
 
 def exibir_aba_certificados(is_admin=False):
-    st.info("ℹ️ Somente bobinas nacionas. Materiais de SFS solicitar diretamente com o Faturamento/Logística da unidade.") 
+    st.info("ℹ️ Somente bobinas nacionais. Materiais de SFS solicitar diretamente com o Faturamento/Logística da unidade.") 
     st.subheader("📑 Solicitação de Certificados de Qualidade")
     st.markdown("Digite o número do Lote exato para receber o certificado de qualidade.")
     with st.form("form_certificado"):
@@ -1578,15 +1581,20 @@ def exibir_aba_notas(is_admin=False):
     with st.form("form_notas"):
         col_n1, col_n2, col_n3 = st.columns([1, 1, 1])
         with col_n1: 
-            # MUDANÇA: Adicionado SAO PAULO
-            filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
+            # MUDANÇA 1: Adicionado o "-" como primeira opção
+            filial_input = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
         with col_n2: nf_input = st.text_input("Número da NF (Ex: 71591):")
         with col_n3: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_nf")
+        
         if st.form_submit_button("Solicitar NF", type="primary"):
-            if not nf_input: st.warning("Digite o número da nota.")
-            elif not email_input: st.warning("Preencha o e-mail.")
+            # MUDANÇA 2: Trava de segurança da filial
+            if filial_input == "-":
+                st.warning("Por favor, selecione a filial de origem da nota.")
+            elif not nf_input: 
+                st.warning("Digite o número da nota.")
+            elif not email_input: 
+                st.warning("Preencha o e-mail.")
             else:
-                # MUDANÇA: Lógica de limpeza (strip e remove zeros a esquerda)
                 nf_limpa = nf_input.strip().lstrip('0')
                 if salvar_solicitacao_nota(st.session_state['usuario_nome'], email_input, nf_limpa, filial_input): 
                     st.success(f"Solicitação da NF **{nf_limpa}** ({filial_input}) enviada!")
