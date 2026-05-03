@@ -1562,7 +1562,7 @@ def exibir_aba_certificados(is_admin=False):
             filial_cert = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
         with col_c2: 
             lote_cert = st.text_input("Lote:")
-            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima.")
+            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai. Então pode solicitar somente de um.")
         with col_c3: 
             email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
             
