@@ -320,13 +320,13 @@ def carregar_solicitacoes_fotos():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_certificados():
     df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Certificados")
-    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Filial", "Status"])
     if not df.empty:
         cols_map = {c: c.strip() for c in df.columns}
         df = df.rename(columns=cols_map)
         if "Lote" in df.columns: df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
-    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Filial", "Status"])
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_notas():
@@ -569,11 +569,11 @@ def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote, filial):
         return False
     except: return False
 
-def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote):
+def salvar_solicitacao_certificado(vendedor_nome, vendedor_email, lote, filial):
     try:
         lote_formatado = f"'{lote}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
-        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
+        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Filial": filial, "Status": "Pendente"}])
         if escrever_no_sheets(URL_SISTEMA, "Solicitacoes_Certificados", nova_linha, modo="append"):
             carregar_solicitacoes_certificados.clear()
             return True
@@ -1553,17 +1553,30 @@ def exibir_aba_fotos(is_admin=False):
 def exibir_aba_certificados(is_admin=False):
     st.info("ℹ️ Somente bobinas nacionais. Materiais de SFS solicitar diretamente com o Faturamento/Logística da unidade.") 
     st.subheader("📑 Solicitação de Certificados de Qualidade")
-    st.markdown("Digite o número do Lote exato para receber o certificado de qualidade.")
+    st.markdown("Selecione a filial e digite o número do Lote exato para receber o certificado de qualidade.")
+    
     with st.form("form_certificado"):
-        col_c1, col_c2 = st.columns([1, 2])
+        col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
+        
         with col_c1: 
+            filial_cert = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
+        with col_c2: 
             lote_cert = st.text_input("Lote:")
-            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai.")
-        with col_c2: email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
+            st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima.")
+        with col_c3: 
+            email_cert = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''), key="email_cert_input")
+            
         if st.form_submit_button("Solicitar Certificado", type="primary"):
-            if not lote_cert: st.warning("Digite o lote.")
-            elif not email_cert: st.warning("Preencha o e-mail.")
-            elif salvar_solicitacao_certificado(st.session_state['usuario_nome'], email_cert, lote_cert): st.success(f"Solicitação de certificado do lote **{lote_cert}** enviada!")
+            if filial_cert == "-": 
+                st.warning("Por favor, selecione a filial do material.")
+            elif not lote_cert: 
+                st.warning("Digite o lote.")
+            elif not email_cert: 
+                st.warning("Preencha o e-mail.")
+            else:
+                lote_limpo = lote_cert.strip()
+                if salvar_solicitacao_certificado(st.session_state['usuario_nome'], email_cert, lote_limpo, filial_cert): 
+                    st.success(f"Solicitação de certificado do lote **{lote_limpo}** ({filial_cert}) enviada!")
     st.divider()
     if is_admin: st.markdown("### 🛠️ Histórico de Solicitações (Visão Admin)")
     else: st.markdown("### 📜 Meus Pedidos de Certificados")
