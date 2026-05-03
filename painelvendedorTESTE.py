@@ -309,13 +309,13 @@ def carregar_solicitacoes():
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_fotos():
     df = ler_com_retry(URL_SISTEMA, "Solicitacoes_Fotos")
-    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    if df is None: return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Filial", "Status"])
     if not df.empty:
         cols_map = {c: c.strip() for c in df.columns}
         df = df.rename(columns=cols_map)
         if "Lote" in df.columns: df["Lote"] = df["Lote"].astype(str).str.replace("'", "") 
         return df
-    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Status"])
+    return pd.DataFrame(columns=["Data", "Vendedor", "Email", "Lote", "Filial", "Status"])
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def carregar_solicitacoes_certificados():
@@ -558,11 +558,11 @@ def salvar_nova_solicitacao(nome, email, login, senha):
         return False
     except: return False
 
-def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote):
+def salvar_solicitacao_foto(vendedor_nome, vendedor_email, lote, filial):
     try:
         lote_formatado = f"'{lote}"
         agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M")
-        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Status": "Pendente"}])
+        nova_linha = pd.DataFrame([{"Data": agora_br, "Vendedor": vendedor_nome, "Email": vendedor_email, "Lote": lote_formatado, "Filial": filial, "Status": "Pendente"}])
         if escrever_no_sheets(URL_SISTEMA, "Solicitacoes_Fotos", nova_linha, modo="append"):
             carregar_solicitacoes_fotos.clear()
             return True
@@ -1512,24 +1512,26 @@ def exibir_aba_credito():
 
 
 def exibir_aba_fotos(is_admin=False):
-    st.info("ℹ️ Somente materiais da filial de Pinheiral.") 
     st.subheader("📷 Solicitação de Fotos (Material em RDQ)")
-    st.markdown("Digite o número do Lote exato abaixo para solicitar fotos de materiais no armazém 20/24.")
+    st.markdown("Selecione a filial e digite o número do Lote exato abaixo para solicitar fotos de materiais no armazém 20/24.")
+    
     with st.form("form_foto"):
+        filial_input = st.selectbox("Selecione a Filial:", ["PINHEIRAL", "SJ BICAS"])
+        
         col_f1, col_f2 = st.columns([1, 2])
         with col_f1: lote_input = st.text_input("Lote:")
         with col_f2: email_input = st.text_input("Enviar para o e-mail:", value=st.session_state.get('usuario_email', ''))
+        
         if st.form_submit_button("Solicitar Fotos", type="primary"):
             if not lote_input: 
                 st.warning("Digite o lote.")
             elif not email_input: 
                 st.warning("Preencha o e-mail.")
             else:
-                # --- LIMPEZA DE ESPAÇOS AUTOMÁTICA ---
+                # Limpeza de espaços automática
                 lote_limpo = lote_input.strip()
-                
-                if salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_limpo): 
-                    st.success(f"Solicitação do lote **{lote_limpo}** enviada!")
+                if salvar_solicitacao_foto(st.session_state['usuario_nome'], email_input, lote_limpo, filial_input): 
+                    st.success(f"Solicitação do lote **{lote_limpo}** ({filial_input}) enviada!")
 
     if is_admin:
         st.divider()
