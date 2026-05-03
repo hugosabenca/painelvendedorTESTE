@@ -1559,7 +1559,7 @@ def exibir_aba_certificados(is_admin=False):
         col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
         
         with col_c1: 
-            filial_cert = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS", "SF DO SUL", "SAO PAULO"])
+            filial_cert = st.selectbox("Selecione a Filial:", ["-", "PINHEIRAL", "SJ BICAS", "SAO PAULO"])
         with col_c2: 
             lote_cert = st.text_input("Lote:")
             st.caption("ℹ️ Lotes que só alteram o sequencial final são provenientes da mesma matéria prima. Exemplo: 06818601001, 06818601002, 06818601003 representam a mesma bobina pai. Então pode solicitar somente de um.")
