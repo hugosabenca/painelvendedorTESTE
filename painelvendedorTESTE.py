@@ -36,12 +36,12 @@ st.markdown("""
         gap: 10px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
+        height: auto; /* Deixa a altura livre para respirar */
+        min-height: 50px;
+        padding: 12px 22px !important; /* Aqui está a mágica: 12px em cima/baixo e 22px nas laterais */
         white-space: pre-wrap;
         background-color: #f0f2f6;
         border-radius: 10px 10px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
         font-weight: bold;
         color: #012169; /* Azul Marinho */
     }
@@ -95,7 +95,7 @@ st.markdown("""
         white-space: nowrap;
     }
     </style>
-    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b> 🚀</div>
+    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b></div>
     """, unsafe_allow_html=True)
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
@@ -2072,10 +2072,11 @@ else:
     # =========================================================
 
     with st.sidebar:
-        # --- NOVO: TÍTULO DA COPA ---
-        st.markdown("<h2 style='text-align: center;'>🇧🇷 Painel Dox 🇧🇷</h2>", unsafe_allow_html=True)
+        # --- NOVO: TÍTULO DA COPA (SEM A BANDEIRA DE "BR") ---
+        st.markdown("<h2 style='text-align: center;'>⭐ Painel Dox ⭐</h2>", unsafe_allow_html=True)
         st.markdown("<h4 style='text-align: center; color: #fedf00;'>🏆 Rumo ao Hexa!</h4>", unsafe_allow_html=True)
         st.divider()
+        # ----------------------------
         # ----------------------------
         # (O resto do seu código da barra lateral continua aqui embaixo normalmente...)
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
