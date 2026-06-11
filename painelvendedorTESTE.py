@@ -49,6 +49,12 @@ st.markdown("""
         background-color: #fedf00 !important; /* Amarelo Canarinho */
         border-bottom: 5px solid #009b3a !important;
     }
+    
+    /* Muda a cor da linha animada que desliza sob a aba selecionada para Azul */
+    .stTabs [data-baseweb="tab-highlight"] {
+        background-color: #012169 !important; /* Azul Marinho */
+        height: 4px !important; 
+    }
 
     /* Botões com estilo de "Botão de Ouro" (Gerais e de Formulários) */
     div.stButton > button, 
@@ -1957,7 +1963,7 @@ if not st.session_state['logado']:
         white-space: nowrap;
     }
     </style>
-    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b> 🚀</div>
+    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b></div>
     """, unsafe_allow_html=True)
     # =========================================================
     if st.session_state['fazendo_cadastro']:
