@@ -18,6 +18,58 @@ st.set_page_config(
     layout="wide"
 )
 
+# ==============================================================================
+# TEMA COPA DO MUNDO - BRASIL 🇧🇷
+# ==============================================================================
+st.markdown("""
+    <style>
+    /* Cor de fundo da Barra Lateral (Verde Brasil) */
+    [data-testid="stSidebar"] {
+        background-color: #009b3a;
+    }
+    [data-testid="stSidebar"] * {
+        color: white !important;
+    }
+
+    /* Estilização das Abas (Tabs) */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #f0f2f6;
+        border-radius: 10px 10px 0px 0px;
+        gap: 1px;
+        padding-top: 10px;
+        font-weight: bold;
+        color: #012169; /* Azul Marinho */
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #fedf00 !important; /* Amarelo Canarinho */
+        border-bottom: 5px solid #009b3a !important;
+    }
+
+    /* Botões com estilo de "Botão de Ouro" */
+    div.stButton > button:first-child {
+        background-color: #fedf00;
+        color: #012169;
+        border: 2px solid #009b3a;
+        font-weight: bold;
+    }
+    div.stButton > button:hover {
+        background-color: #009b3a;
+        color: white;
+    }
+
+    /* Títulos e Subtítulos */
+    h1, h2, h3 {
+        color: #012169 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
 # --- USANDO URLS COMPLETAS ---
@@ -1897,6 +1949,32 @@ if not st.session_state['logado']:
             st.title("🔒 Login - Painel Dox")
             st.markdown("---")
             
+            # =========================================================
+            # PASSO 3: EFEITO CHUVA DA COPA (COLADO AQUI!)
+            # =========================================================
+            st.markdown("""
+            <style>
+            @keyframes chuvaCopa {
+                0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+                100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+            }
+            .item-chuva {
+                position: fixed;
+                top: -10%;
+                font-size: 35px;
+                animation: chuvaCopa 4s linear infinite;
+                z-index: 9999;
+            }
+            </style>
+            <div class="item-chuva" style="left: 10%; animation-delay: 0s;">🇧🇷</div>
+            <div class="item-chuva" style="left: 25%; animation-delay: 2s;">⚽</div>
+            <div class="item-chuva" style="left: 40%; animation-delay: 1s;">💚</div>
+            <div class="item-chuva" style="left: 60%; animation-delay: 3s;">💛</div>
+            <div class="item-chuva" style="left: 75%; animation-delay: 1.5s;">🏆</div>
+            <div class="item-chuva" style="left: 90%; animation-delay: 0.5s;">🇧🇷</div>
+            """, unsafe_allow_html=True)
+            # =========================================================
+            
             # Inputs
             u = st.text_input("Login", placeholder="Digite seu usuário").strip()
             s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
@@ -1958,6 +2036,11 @@ else:
     # =========================================================
 
     with st.sidebar:
+        # --- NOVO: TÍTULO DA COPA ---
+        st.markdown("<h2 style='text-align: center;'>🇧🇷 Painel Dox 🇧🇷</h2>", unsafe_allow_html=True)
+        st.markdown("<h4 style='text-align: center; color: #fedf00;'>🏆 Rumo ao Hexa!</h4>", unsafe_allow_html=True)
+        st.divider()
+        # ----------------------------
         # (O resto do seu código da barra lateral continua aqui embaixo normalmente...)
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         agora = datetime.now(FUSO_BR)
