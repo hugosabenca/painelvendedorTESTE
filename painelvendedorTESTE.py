@@ -74,31 +74,12 @@ st.markdown("""
 
 
 # ==============================================================================
-# ASSINATURA DO CRIADOR (RODAPÉ CENTRALIZADO)
+# ESCONDER RODAPÉ PADRÃO DO STREAMLIT
 # ==============================================================================
 st.markdown("""
     <style>
-    /* Esconde o rodapé padrão do Streamlit */
     footer {visibility: hidden;}
-    
-    /* Cria a assinatura flutuante CENTRALIZADA no final da página */
-    .assinatura-hugo {
-        position: fixed;
-        bottom: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        color: #888888;
-        font-size: 13px;
-        font-style: italic;
-        z-index: 100;
-        background-color: rgba(255, 255, 255, 0.6); /* Fundo levemente visível */
-        padding: 4px 12px;
-        border-radius: 10px;
-        text-align: center;
-        white-space: nowrap;
-    }
     </style>
-    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b></div>
     """, unsafe_allow_html=True)
 
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
@@ -1954,6 +1935,31 @@ if 'fazendo_cadastro' not in st.session_state: st.session_state['fazendo_cadastr
 # --- LOGIN ---
 # --- LOGIN ---
 if not st.session_state['logado']:
+
+    # =========================================================
+    # ASSINATURA DO CRIADOR (APARECE SÓ NO LOGIN)
+    # =========================================================
+    st.markdown("""
+    <style>
+    .assinatura-hugo {
+        position: fixed;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #888888;
+        font-size: 13px;
+        font-style: italic;
+        z-index: 100;
+        background-color: rgba(255, 255, 255, 0.6); 
+        padding: 4px 12px;
+        border-radius: 10px;
+        text-align: center;
+        white-space: nowrap;
+    }
+    </style>
+    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b> 🚀</div>
+    """, unsafe_allow_html=True)
+    # =========================================================
     if st.session_state['fazendo_cadastro']:
         st.title("📝 Solicitação de Acesso")
         with st.form("form_cadastro"):
