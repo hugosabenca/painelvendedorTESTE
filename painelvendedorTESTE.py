@@ -71,25 +71,28 @@ st.markdown("""
 
 
 # ==============================================================================
-# ASSINATURA DO CRIADOR (RODAPÉ)
+# ASSINATURA DO CRIADOR (RODAPÉ CENTRALIZADO)
 # ==============================================================================
 st.markdown("""
     <style>
     /* Esconde o rodapé padrão do Streamlit */
     footer {visibility: hidden;}
     
-    /* Cria a assinatura flutuante no canto direito */
+    /* Cria a assinatura flutuante CENTRALIZADA no final da página */
     .assinatura-hugo {
         position: fixed;
         bottom: 10px;
-        right: 15px;
+        left: 50%;
+        transform: translateX(-50%);
         color: #888888;
         font-size: 13px;
         font-style: italic;
         z-index: 100;
-        background-color: rgba(255, 255, 255, 0.5); /* Fundo levemente transparente para não misturar com o texto */
-        padding: 2px 8px;
+        background-color: rgba(255, 255, 255, 0.6); /* Fundo levemente visível */
+        padding: 4px 12px;
         border-radius: 10px;
+        text-align: center;
+        white-space: nowrap;
     }
     </style>
     <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b> 🚀</div>
@@ -1997,14 +2000,14 @@ if not st.session_state['logado']:
             <div class="item-chuva" style="left: 25%; animation-delay: 2.5s;">🏆</div>
             <div class="item-chuva" style="left: 35%; animation-delay: 0.8s;">💛</div>
             <div class="item-chuva" style="left: 45%; animation-delay: 3.1s;">⚽</div>
-            <div class="item-chuva" style="left: 55%; animation-delay: 1.5s;">⭐</div>
+            <div class="item-chuva" style="left: 55%; animation-delay: 1.5s;">💙</div>
             <div class="item-chuva" style="left: 65%; animation-delay: 0.3s;">💚</div>
-            <div class="item-chuva" style="left: 75%; animation-delay: 2.2s;">🥇</div>
-            <div class="item-chuva" style="left: 85%; animation-delay: 1.0s;">💛</div>
+            <div class="item-chuva" style="left: 75%; animation-delay: 2.2s;">💛</div>
+            <div class="item-chuva" style="left: 85%; animation-delay: 1.0s;">💚</div>
             <div class="item-chuva" style="left: 95%; animation-delay: 2.8s;">⚽</div>
-            <div class="item-chuva" style="left: 20%; animation-delay: 3.5s;">🥇</div>
+            <div class="item-chuva" style="left: 20%; animation-delay: 3.5s;">💛</div>
             <div class="item-chuva" style="left: 50%; animation-delay: 0.5s;">🏆</div>
-            <div class="item-chuva" style="left: 80%; animation-delay: 0.6s;">⭐</div>
+            <div class="item-chuva" style="left: 80%; animation-delay: 0.6s;">💙</div>
             """, unsafe_allow_html=True)
             # =========================================================
             
