@@ -36,10 +36,10 @@ st.markdown("""
         gap: 10px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: auto; /* Deixa a altura livre para respirar */
+        height: auto; 
         min-height: 50px;
-        padding: 12px 22px !important; /* Aqui está a mágica: 12px em cima/baixo e 22px nas laterais */
-        white-space: pre-wrap;
+        padding: 12px 22px !important; 
+        white-space: nowrap !important; /* AQUI ESTÁ A MÁGICA: Impede a quebra de linha */
         background-color: #f0f2f6;
         border-radius: 10px 10px 0px 0px;
         font-weight: bold;
