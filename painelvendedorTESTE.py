@@ -2072,13 +2072,7 @@ else:
     # =========================================================
 
     with st.sidebar:
-        # --- NOVO: TÍTULO DA COPA (SEM A BANDEIRA DE "BR") ---
-        st.markdown("<h2 style='text-align: center;'>⭐ Painel Dox ⭐</h2>", unsafe_allow_html=True)
-        st.markdown("<h4 style='text-align: center; color: #fedf00;'>🏆 Rumo ao Hexa!</h4>", unsafe_allow_html=True)
-        st.divider()
-        # ----------------------------
-        # ----------------------------
-        # (O resto do seu código da barra lateral continua aqui embaixo normalmente...)
+        
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         agora = datetime.now(FUSO_BR)
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
