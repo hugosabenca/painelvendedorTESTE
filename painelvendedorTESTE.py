@@ -50,16 +50,19 @@ st.markdown("""
         border-bottom: 5px solid #009b3a !important;
     }
 
-    /* Botões com estilo de "Botão de Ouro" */
-    div.stButton > button:first-child {
-        background-color: #fedf00;
-        color: #012169;
-        border: 2px solid #009b3a;
-        font-weight: bold;
+    /* Botões com estilo de "Botão de Ouro" (Gerais e de Formulários) */
+    div.stButton > button, 
+    div[data-testid="stFormSubmitButton"] > button {
+        background-color: #fedf00 !important;
+        color: #012169 !important;
+        border: 2px solid #009b3a !important;
+        font-weight: bold !important;
     }
-    div.stButton > button:hover {
-        background-color: #009b3a;
-        color: white;
+    div.stButton > button:hover, 
+    div[data-testid="stFormSubmitButton"] > button:hover {
+        background-color: #009b3a !important;
+        color: white !important;
+        border: 2px solid #fedf00 !important;
     }
 
     /* Títulos e Subtítulos */
