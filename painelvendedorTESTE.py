@@ -1983,6 +1983,12 @@ if not st.session_state['logado']:
 
         with col_login:
             st.markdown("<br>", unsafe_allow_html=True) 
+            
+            # =========================================================
+            # NOVO: BOBIDOX NA TELA DE LOGIN
+            # =========================================================
+            st.image("bobidoxbrasil2.png", use_container_width=True)
+            # =========================================================
             st.title("🔒 Login - Painel Dox")
             st.markdown("---")
             
