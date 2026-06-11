@@ -70,6 +70,31 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
+# ==============================================================================
+# ASSINATURA DO CRIADOR (RODAPÉ)
+# ==============================================================================
+st.markdown("""
+    <style>
+    /* Esconde o rodapé padrão do Streamlit */
+    footer {visibility: hidden;}
+    
+    /* Cria a assinatura flutuante no canto direito */
+    .assinatura-hugo {
+        position: fixed;
+        bottom: 10px;
+        right: 15px;
+        color: #888888;
+        font-size: 13px;
+        font-style: italic;
+        z-index: 100;
+        background-color: rgba(255, 255, 255, 0.5); /* Fundo levemente transparente para não misturar com o texto */
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+    </style>
+    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b> 🚀</div>
+    """, unsafe_allow_html=True)
+
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
 # --- USANDO URLS COMPLETAS ---
@@ -1950,7 +1975,7 @@ if not st.session_state['logado']:
             st.markdown("---")
             
             # =========================================================
-            # PASSO 3: EFEITO CHUVA DA COPA (COLADO AQUI!)
+            # PASSO 3: EFEITO CHUVA DA COPA (CORRIGIDO E MAIS DENSO)
             # =========================================================
             st.markdown("""
             <style>
@@ -1962,16 +1987,24 @@ if not st.session_state['logado']:
                 position: fixed;
                 top: -10%;
                 font-size: 35px;
-                animation: chuvaCopa 4s linear infinite;
+                /* Reduzi o tempo de 4s para 3.5s para cair um pouco mais rápido */
+                animation: chuvaCopa 3.5s linear infinite; 
                 z-index: 9999;
             }
             </style>
-            <div class="item-chuva" style="left: 10%; animation-delay: 0s;">🇧🇷</div>
-            <div class="item-chuva" style="left: 25%; animation-delay: 2s;">⚽</div>
-            <div class="item-chuva" style="left: 40%; animation-delay: 1s;">💚</div>
-            <div class="item-chuva" style="left: 60%; animation-delay: 3s;">💛</div>
-            <div class="item-chuva" style="left: 75%; animation-delay: 1.5s;">🏆</div>
-            <div class="item-chuva" style="left: 90%; animation-delay: 0.5s;">🇧🇷</div>
+            <div class="item-chuva" style="left: 5%; animation-delay: 0.1s;">⚽</div>
+            <div class="item-chuva" style="left: 15%; animation-delay: 1.2s;">💚</div>
+            <div class="item-chuva" style="left: 25%; animation-delay: 2.5s;">🏆</div>
+            <div class="item-chuva" style="left: 35%; animation-delay: 0.8s;">💛</div>
+            <div class="item-chuva" style="left: 45%; animation-delay: 3.1s;">⚽</div>
+            <div class="item-chuva" style="left: 55%; animation-delay: 1.5s;">⭐</div>
+            <div class="item-chuva" style="left: 65%; animation-delay: 0.3s;">💚</div>
+            <div class="item-chuva" style="left: 75%; animation-delay: 2.2s;">🥇</div>
+            <div class="item-chuva" style="left: 85%; animation-delay: 1.0s;">💛</div>
+            <div class="item-chuva" style="left: 95%; animation-delay: 2.8s;">⚽</div>
+            <div class="item-chuva" style="left: 20%; animation-delay: 3.5s;">🥇</div>
+            <div class="item-chuva" style="left: 50%; animation-delay: 0.5s;">🏆</div>
+            <div class="item-chuva" style="left: 80%; animation-delay: 0.6s;">⭐</div>
             """, unsafe_allow_html=True)
             # =========================================================
             
