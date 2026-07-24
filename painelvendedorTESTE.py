@@ -2036,61 +2036,63 @@ else:
                 st.caption(f"Faturado em {meses[agora.month]}:")
                 st.metric("Total (Tons)", f"{total_tons:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    if st.session_state['usuario_tipo'].lower() == "admin":
-        # Adicionei "📂 Carteira" no início (a0)
-        a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
+    with st.spinner("Os dados estão sendo sincronizados com o servidor. Por favor, aguarde um instante... ⏳"):
         
-        with a0: exibir_aba_carteira_geral()
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_credito()
-        with a3: exibir_aba_estoque()
-        with a4: exibir_aba_fotos(True)
-        with a5: st.dataframe(carregar_solicitacoes(), use_container_width=True)
-        with a6: exibir_aba_certificados(True)
-        with a7: exibir_aba_notas(True) 
-        with a8: st.dataframe(carregar_logs_acessos(), use_container_width=True)
-        with a9: exibir_aba_faturamento()
-        with a10: exibir_aba_producao()
-        with a11: exibir_aba_manutencao() 
-        
-    elif st.session_state['usuario_tipo'].lower() == "master":
-        a0, a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
-        with a0: exibir_aba_carteira_geral()
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_credito()
-        with a3: exibir_aba_estoque() 
-        with a4: exibir_aba_fotos(False) 
-        with a5: exibir_aba_certificados(False) 
-        with a6: exibir_aba_notas(False)        
-        with a7: exibir_aba_faturamento()
-        with a8: exibir_aba_producao()
+        if st.session_state['usuario_tipo'].lower() == "admin":
+            # Adicionei "📂 Carteira" no início (a0)
+            a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
+            
+            with a0: exibir_aba_carteira_geral()
+            with a1: exibir_carteira_pedidos()
+            with a2: exibir_aba_credito()
+            with a3: exibir_aba_estoque()
+            with a4: exibir_aba_fotos(True)
+            with a5: st.dataframe(carregar_solicitacoes(), use_container_width=True)
+            with a6: exibir_aba_certificados(True)
+            with a7: exibir_aba_notas(True) 
+            with a8: st.dataframe(carregar_logs_acessos(), use_container_width=True)
+            with a9: exibir_aba_faturamento()
+            with a10: exibir_aba_producao()
+            with a11: exibir_aba_manutencao() 
+            
+        elif st.session_state['usuario_tipo'].lower() == "master":
+            a0, a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+            with a0: exibir_aba_carteira_geral()
+            with a1: exibir_carteira_pedidos()
+            with a2: exibir_aba_credito()
+            with a3: exibir_aba_estoque() 
+            with a4: exibir_aba_fotos(False) 
+            with a5: exibir_aba_certificados(False) 
+            with a6: exibir_aba_notas(False)        
+            with a7: exibir_aba_faturamento()
+            with a8: exibir_aba_producao()
 
-    elif st.session_state['usuario_tipo'].lower() in ["logística", "logistica", "pcp"]:
-        a0, a1, a2, a3, a4, a5 = st.tabs(["📂 Carteira", "📂 Itens Programados", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
-        with a0: exibir_aba_carteira_geral()
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_estoque()
-        with a3: exibir_aba_fotos(True) 
-        with a4: exibir_aba_certificados(True) 
-        with a5: exibir_aba_notas(True) 
+        elif st.session_state['usuario_tipo'].lower() in ["logística", "logistica", "pcp"]:
+            a0, a1, a2, a3, a4, a5 = st.tabs(["📂 Carteira", "📂 Itens Programados", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            with a0: exibir_aba_carteira_geral()
+            with a1: exibir_carteira_pedidos()
+            with a2: exibir_aba_estoque()
+            with a3: exibir_aba_fotos(True) 
+            with a4: exibir_aba_certificados(True) 
+            with a5: exibir_aba_notas(True) 
 
-    elif st.session_state['usuario_tipo'].lower() in ["manutenção", "manutencao"]:
-        tabs_manu = st.tabs(["🔧 Manutenção"])
-        with tabs_manu[0]: exibir_aba_manutencao()
+        elif st.session_state['usuario_tipo'].lower() in ["manutenção", "manutencao"]:
+            tabs_manu = st.tabs(["🔧 Manutenção"])
+            with tabs_manu[0]: exibir_aba_manutencao()
 
-    elif st.session_state['usuario_tipo'].lower() == "qualidade":
-        a1, a2, a3 = st.tabs(["📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
-        with a1: exibir_aba_fotos(True) 
-        with a2: exibir_aba_certificados(True) 
-        with a3: exibir_aba_notas(True)    
-        
-    else:
-        # Vendedores e Gerentes Padrão
-        a0, a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
-        with a0: exibir_aba_carteira_geral()
-        with a1: exibir_carteira_pedidos()
-        with a2: exibir_aba_credito()
-        with a3: exibir_aba_estoque() 
-        with a4: exibir_aba_fotos(False) 
-        with a5: exibir_aba_certificados(False)
-        with a6: exibir_aba_notas(False)
+        elif st.session_state['usuario_tipo'].lower() == "qualidade":
+            a1, a2, a3 = st.tabs(["📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            with a1: exibir_aba_fotos(True) 
+            with a2: exibir_aba_certificados(True) 
+            with a3: exibir_aba_notas(True)    
+            
+        else:
+            # Vendedores e Gerentes Padrão
+            a0, a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            with a0: exibir_aba_carteira_geral()
+            with a1: exibir_carteira_pedidos()
+            with a2: exibir_aba_credito()
+            with a3: exibir_aba_estoque() 
+            with a4: exibir_aba_fotos(False) 
+            with a5: exibir_aba_certificados(False)
+            with a6: exibir_aba_notas(False)
