@@ -1915,18 +1915,7 @@ if not st.session_state['logado']:
         # =================================================================
         
         # Cria duas colunas: A primeira estreita para o login, a segunda vazia para preencher o resto
-        col_login, col_vazia = st.columns([1, 1.5]) 
-
-        # =========================================================
-        # BOBIDOX NO CANTO DIREITO (LADO VAZIO)
-        # =========================================================
-        with col_vazia:
-            st.markdown("<br>", unsafe_allow_html=True) # Dá um espacinho no topo
-            # Cria 3 sub-colunas internas só para a foto não ficar esticada
-            c_esq, c_img, c_dir = st.columns([1, 2, 1]) 
-            with c_img:
-                st.image("bobidoxbrasil2.png", use_container_width=True)
-        # =========================================================
+        col_login, col_vazia = st.columns([1, 2]) 
 
         with col_login:
             st.markdown("<br>", unsafe_allow_html=True) 
