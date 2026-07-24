@@ -18,76 +18,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ==============================================================================
-# TEMA COPA DO MUNDO - BRASIL 🇧🇷
-# ==============================================================================
-st.markdown("""
-    <style>
-    /* Cor de fundo da Barra Lateral (Verde Brasil) */
-    [data-testid="stSidebar"] {
-        background-color: #009b3a;
-    }
-    [data-testid="stSidebar"] * {
-        color: white !important;
-    }
-
-    /* Estilização das Abas (Tabs) */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: auto; 
-        min-height: 50px;
-        padding: 12px 22px !important; 
-        white-space: nowrap !important; /* AQUI ESTÁ A MÁGICA: Impede a quebra de linha */
-        background-color: #f0f2f6;
-        border-radius: 10px 10px 0px 0px;
-        font-weight: bold;
-        color: #012169; /* Azul Marinho */
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #fedf00 !important; /* Amarelo Canarinho */
-        border-bottom: 5px solid #009b3a !important;
-    }
-    
-    /* Muda a cor da linha animada que desliza sob a aba selecionada para Azul */
-    .stTabs [data-baseweb="tab-highlight"] {
-        background-color: #012169 !important; /* Azul Marinho */
-        height: 4px !important; 
-    }
-
-    /* Botões com estilo de "Botão de Ouro" (Gerais e de Formulários) */
-    div.stButton > button, 
-    div[data-testid="stFormSubmitButton"] > button {
-        background-color: #fedf00 !important;
-        color: #012169 !important;
-        border: 2px solid #009b3a !important;
-        font-weight: bold !important;
-    }
-    div.stButton > button:hover, 
-    div[data-testid="stFormSubmitButton"] > button:hover {
-        background-color: #009b3a !important;
-        color: white !important;
-        border: 2px solid #fedf00 !important;
-    }
-
-    /* Títulos e Subtítulos */
-    h1, h2, h3 {
-        color: #012169 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-
-# ==============================================================================
-# ESCONDER RODAPÉ PADRÃO DO STREAMLIT
-# ==============================================================================
-st.markdown("""
-    <style>
-    footer {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
-
 FUSO_BR = pytz.timezone('America/Sao_Paulo')
 
 # --- USANDO URLS COMPLETAS ---
@@ -1941,31 +1871,6 @@ if 'fazendo_cadastro' not in st.session_state: st.session_state['fazendo_cadastr
 # --- LOGIN ---
 # --- LOGIN ---
 if not st.session_state['logado']:
-
-    # =========================================================
-    # ASSINATURA DO CRIADOR (APARECE SÓ NO LOGIN)
-    # =========================================================
-    st.markdown("""
-    <style>
-    .assinatura-hugo {
-        position: fixed;
-        bottom: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        color: #888888;
-        font-size: 13px;
-        font-style: italic;
-        z-index: 100;
-        background-color: rgba(255, 255, 255, 0.6); 
-        padding: 4px 12px;
-        border-radius: 10px;
-        text-align: center;
-        white-space: nowrap;
-    }
-    </style>
-    <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b></div>
-    """, unsafe_allow_html=True)
-    # =========================================================
     if st.session_state['fazendo_cadastro']:
         st.title("📝 Solicitação de Acesso")
         with st.form("form_cadastro"):
@@ -1984,96 +1889,57 @@ if not st.session_state['logado']:
         # TELA DE LOGIN: ALINHADA À ESQUERDA E COMPACTA
         # =================================================================
         
-        # Ajustei as proporções das colunas para [1, 1.5] para dividir melhor a tela
-        col_login, col_vazia = st.columns([1, 1.5]) 
-
-        # =========================================================
-        # BOBIDOX NO CANTO DIREITO (LADO VAZIO)
-        # =========================================================
-        with col_vazia:
-            st.markdown("<br>", unsafe_allow_html=True) # Dá um espacinho no topo
-            # Cria 3 sub-colunas internas só para a foto não ficar esticada
-            c_esq, c_img, c_dir = st.columns([1, 2, 1]) 
-            with c_img:
-                st.image("bobidoxbrasil2.png", use_container_width=True)
-        # =========================================================
+        # Cria duas colunas: A primeira estreita para o login, a segunda vazia para preencher o resto
+        col_login, col_vazia = st.columns([1, 2]) 
 
         with col_login:
             st.markdown("<br>", unsafe_allow_html=True) 
             st.title("🔒 Login - Painel Dox")
             st.markdown("---")
             
-            # =========================================================
-            # PASSO 3: EFEITO CHUVA DA COPA (CORRIGIDO E MAIS DENSO)
-            # =========================================================
-            st.markdown("""
-            <style>
-            @keyframes chuvaCopa {
-                0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
-                100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
-            }
-            .item-chuva {
-                position: fixed;
-                top: -10%;
-                font-size: 35px;
-                /* Reduzi o tempo de 4s para 3.5s para cair um pouco mais rápido */
-                animation: chuvaCopa 3.5s linear infinite; 
-                z-index: 9999;
-            }
-            </style>
-            <div class="item-chuva" style="left: 5%; animation-delay: 0.1s;">⚽</div>
-            <div class="item-chuva" style="left: 15%; animation-delay: 1.2s;">💚</div>
-            <div class="item-chuva" style="left: 25%; animation-delay: 2.5s;">🏆</div>
-            <div class="item-chuva" style="left: 35%; animation-delay: 0.8s;">💛</div>
-            <div class="item-chuva" style="left: 45%; animation-delay: 3.1s;">⚽</div>
-            <div class="item-chuva" style="left: 55%; animation-delay: 1.5s;">💙</div>
-            <div class="item-chuva" style="left: 65%; animation-delay: 0.3s;">💚</div>
-            <div class="item-chuva" style="left: 75%; animation-delay: 2.2s;">💛</div>
-            <div class="item-chuva" style="left: 85%; animation-delay: 1.0s;">💚</div>
-            <div class="item-chuva" style="left: 95%; animation-delay: 2.8s;">⚽</div>
-            <div class="item-chuva" style="left: 20%; animation-delay: 3.5s;">💛</div>
-            <div class="item-chuva" style="left: 50%; animation-delay: 0.5s;">🏆</div>
-            <div class="item-chuva" style="left: 80%; animation-delay: 0.6s;">💙</div>
-            """, unsafe_allow_html=True)
-            # =========================================================
-            
-            # Inputs
-            u = st.text_input("Login", placeholder="Digite seu usuário").strip()
-            s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
-            
-            st.markdown("<br>", unsafe_allow_html=True)
+            # 1. EMPACOTAMENTO: Cria o formulário para "travar" a sincronização
+            with st.form("form_login"):
+                # Inputs
+                u = st.text_input("Login", placeholder="Digite seu usuário").strip()
+                s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
+                
+                st.markdown("<br>", unsafe_allow_html=True)
 
-            # Botões
-            c_btn1, c_btn2 = st.columns(2)
-            with c_btn1:
-                if st.button("Acessar", type="primary", use_container_width=True):
-                    # Validação
-                    df = carregar_usuarios()
-                    if df.empty: st.error("Erro de conexão.")
-                    elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
-                    else:
-                        try:
-                            user = df[(df['Login'].str.lower() == u.lower()) & (df['Senha'] == s)]
-                            if not user.empty:
-                                d = user.iloc[0]
-                                st.session_state.update({
-                                    'logado': True, 
-                                    'usuario_nome': d['Nome Vendedor'].split()[0], 
-                                    'usuario_filtro': d['Nome Vendedor'], 
-                                    'usuario_email': d.get('Email', ''), 
-                                    'usuario_tipo': d['Tipo'],
-                                    'usuario_login': d['Login']
-                                })
-                                registrar_acesso(u, d['Nome Vendedor'])
-                                st.rerun()
-                            else: st.error("Dados incorretos.")
-                        except Exception as e:
-                            st.error(f"Erro no login: {e}")
+                # Botões viram submit_buttons
+                c_btn1, c_btn2 = st.columns(2)
+                with c_btn1:
+                    btn_acessar = st.form_submit_button("Acessar", type="primary", use_container_width=True)
+                with c_btn2:
+                    btn_solicitar = st.form_submit_button("Solicitar Acesso", use_container_width=True)
             
-            with c_btn2:
-                if st.button("Solicitar Acesso", use_container_width=True): 
-                    st.session_state['fazendo_cadastro'] = True
-                    st.rerun()
+            # 2. LÓGICA DE VALIDAÇÃO: Fica FORA do 'with st.form', mas DENTRO da 'with col_login'
+            if btn_acessar:
+                # Validação
+                df = carregar_usuarios()
+                if df.empty: st.error("Erro de conexão.")
+                elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
+                else:
+                    try:
+                        user = df[(df['Login'].str.strip().str.lower() == u.lower()) & (df['Senha'].str.strip() == s)]
+                        if not user.empty:
+                            d = user.iloc[0]
+                            st.session_state.update({
+                                'logado': True, 
+                                'usuario_nome': d['Nome Vendedor'].split()[0], 
+                                'usuario_filtro': d['Nome Vendedor'], 
+                                'usuario_email': d.get('Email', ''), 
+                                'usuario_tipo': d['Tipo'],
+                                'usuario_login': d['Login']
+                            })
+                            registrar_acesso(u, d['Nome Vendedor'])
+                            st.rerun()
+                        else: st.error("Dados incorretos.")
+                    except Exception as e:
+                        st.error(f"Erro no login: {e}")
+            
+            if btn_solicitar:
+                st.session_state['fazendo_cadastro'] = True
+                st.rerun()
 else:
     # =========================================================
     # VERIFICAÇÃO DO POP-UP DE AVISO: NOVA ABA CARTEIRA
@@ -2098,7 +1964,7 @@ else:
     # =========================================================
 
     with st.sidebar:
-        
+        # (O resto do seu código da barra lateral continua aqui embaixo normalmente...)
         st.write(f"Bem-vindo, **{st.session_state['usuario_nome'].upper()}**")
         agora = datetime.now(FUSO_BR)
         dias_semana = {0: 'Segunda-feira', 1: 'Terça-feira', 2: 'Quarta-feira', 3: 'Quinta-feira', 4: 'Sexta-feira', 5: 'Sábado', 6: 'Domingo'}
@@ -2146,7 +2012,8 @@ else:
         
         # --- BLOCO: FATURAMENTO DO VENDEDOR (VISÍVEL APENAS PARA VENDEDOR) ---
         if st.session_state['usuario_tipo'].lower() == "vendedor":
-            df_fat_vend = carregar_faturamento_vendedores()
+            # Usa a sua função de blindagem para usar o cache antigo e nunca retornar 'None'
+            df_fat_vend = obter_dados_persistentes("cache_fat_vendedor", carregar_faturamento_vendedores)
             
             if not df_fat_vend.empty and 'VENDEDOR' in df_fat_vend.columns and 'DATA_DT' in df_fat_vend.columns:
                 usuario_atual = st.session_state['usuario_filtro']
