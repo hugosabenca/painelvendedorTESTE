@@ -1469,19 +1469,26 @@ def exibir_meus_pedidos():
 
             def _timeline_html(status_txt):
                 etapas_internas = ["Aberto", "Programado", "Pronto", "Faturado"]
-                etapas_display = ["Não Programado", "Programado", "Pronto", "Faturado"]
+                labels = ["Não Programado", "Programado", "Pronto", "Faturado"]
+                icones = ["📝", "🛠️", "📦", "🚚"]
+                cores = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6"]
                 idx_atual = etapas_internas.index(status_txt)
-                cores = {"Aberto": "#ef4444", "Programado": "#f59e0b", "Pronto": "#22c55e", "Faturado": "#3b82f6"}
-                partes = []
-                for i, chave in enumerate(etapas_internas):
-                    et = etapas_display[i]
+
+                nodes_html = ""
+                for i in range(4):
                     if i < idx_atual:
-                        partes.append(f"<span style='color:#9ca3af'>✓ {et}</span>")
+                        circulo = "<div style='width:16px; height:16px; border-radius:50%; background:#e5e7eb; display:flex; align-items:center; justify-content:center; font-size:9px; color:#6b7280'>✓</div>"
                     elif i == idx_atual:
-                        partes.append(f"<span style='color:{cores[chave]}; font-weight:600'>● {et}</span>")
+                        circulo = f"<div style='width:18px; height:18px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:10px'>{icones[i]}</div>"
                     else:
-                        partes.append(f"<span style='color:#d1d5db'>○ {et}</span>")
-                return " → ".join(partes)
+                        circulo = "<div style='width:16px; height:16px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb'></div>"
+                    nodes_html += circulo
+                    if i < 3:
+                        linha_cor = "#d1d5db" if i >= idx_atual else "#9ca3af"
+                        nodes_html += f"<div style='width:12px; height:2px; background:{linha_cor}'></div>"
+
+                label_atual = f"<div style='font-size:10px; color:{cores[idx_atual]}; font-weight:600; margin-top:2px; white-space:nowrap'>{labels[idx_atual]}</div>"
+                return f"<div style='display:flex; flex-direction:column; align-items:flex-start'><div style='display:flex; align-items:center'>{nodes_html}</div>{label_atual}</div>"
 
             with st.expander("Ver itens"):
                 linhas_html = ""
