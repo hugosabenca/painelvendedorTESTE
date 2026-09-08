@@ -1212,24 +1212,15 @@ def exibir_carteira_pedidos():
     else: 
         st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
 
-def exibir_meus_pedidos():
-    tipo_usuario = st.session_state['usuario_tipo'].lower()
-    nome_filtro = st.session_state['usuario_filtro']
+def _normalizar_produto_mp(texto):
+    return ' '.join(str(texto).upper().split())
 
-    df_carteira = obter_dados_persistentes("cache_carteira_mp", carregar_dados_carteira)
-    df_faturados = obter_dados_persistentes("cache_pedidos_faturados", carregar_dados_pedidos_faturados)
-    df_distancias = obter_dados_persistentes("cache_distancias_mp", carregar_cache_distancias_painel)
-
-    if df_carteira is None or df_carteira.empty:
-        st.info("Não foi possível carregar os dados da Carteira no momento.")
-        return
-
+@st.cache_data(ttl="5m", show_spinner=False)
+def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_programados,
+                                  tipo_usuario, nome_filtro, filtro_vendedor):
     df_carteira = df_carteira.copy()
 
-    # --- FILTRO DE PERMISSÃO NA CARTEIRA ---
     if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
-        vendedores_unicos = sorted(df_carteira['VENDEDOR'].dropna().unique())
-        filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
         df_carteira_f = df_carteira[df_carteira['VENDEDOR'] == filtro_vendedor].copy() if filtro_vendedor != "Todos" else df_carteira.copy()
     elif tipo_usuario == "gerente comercial":
         nome_busca = nome_filtro.lower().strip()
@@ -1239,7 +1230,6 @@ def exibir_meus_pedidos():
     else:
         df_carteira_f = df_carteira[df_carteira['VENDEDOR'].astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
 
-    # --- FILTRO DE PERMISSÃO NOS FATURADOS (mesma lógica) ---
     df_fat_f = pd.DataFrame()
     if isinstance(df_faturados, pd.DataFrame) and not df_faturados.empty and 'PEDIDO' in df_faturados.columns:
         df_faturados = df_faturados.copy()
@@ -1254,20 +1244,14 @@ def exibir_meus_pedidos():
             df_fat_f = df_faturados[df_faturados.get('VENDEDOR', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
 
     if df_carteira_f.empty and df_fat_f.empty:
-        st.info("Nenhum pedido encontrado para o seu perfil.")
-        return
+        return []
 
-    # --- ITENS PROGRAMADOS (PCP/Dox 360) — define o que já foi alocado em máquina ---
-    def _normalizar_produto(texto):
-        return ' '.join(str(texto).upper().split())
-
-    df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
     programados_set = set()
     programados_prazo = {}
     if isinstance(df_programados, pd.DataFrame) and not df_programados.empty:
         if 'Número do Pedido' in df_programados.columns and 'Produto' in df_programados.columns:
             for _, r in df_programados.iterrows():
-                chave = (str(r['Número do Pedido']).strip(), _normalizar_produto(r['Produto']))
+                chave = (str(r['Número do Pedido']).strip(), _normalizar_produto_mp(r['Produto']))
                 programados_set.add(chave)
                 if 'Prazo' in df_programados.columns:
                     prazo_dt = pd.to_datetime(r['Prazo'], dayfirst=True, errors='coerce')
@@ -1278,7 +1262,7 @@ def exibir_meus_pedidos():
         lote = str(row.get('LOTE', '')).strip()
         if lote and lote.lower() not in ('nan', 'none', ''):
             return 2
-        chave = (str(row.get('PEDIDO', '')).strip(), _normalizar_produto(row.get('PRODUTO', '')))
+        chave = (str(row.get('PEDIDO', '')).strip(), _normalizar_produto_mp(row.get('PRODUTO', '')))
         return 1 if chave in programados_set else 0
 
     df_carteira_f['STATUS_ORDEM'] = df_carteira_f.apply(_status_item, axis=1)
@@ -1289,7 +1273,6 @@ def exibir_meus_pedidos():
         df_fat_f['TONS_NUM'] = df_fat_f['TONS'].apply(converte_numero_seguro) if 'TONS' in df_fat_f.columns else 0
         df_fat_f['EMISSAO_DT'] = pd.to_datetime(df_fat_f['EMISSAO_NF'], dayfirst=True, errors='coerce') if 'EMISSAO_NF' in df_fat_f.columns else pd.NaT
 
-    # --- CACHE DE DISTÂNCIAS ---
     cache_dist = {}
     if isinstance(df_distancias, pd.DataFrame) and not df_distancias.empty:
         for _, r in df_distancias.iterrows():
@@ -1304,13 +1287,9 @@ def exibir_meus_pedidos():
         tempo_horas = cache_dist.get((str(filial).upper(), str(municipio).upper(), str(uf).upper()))
         if tempo_horas is None:
             return None
-        if tempo_horas <= 1:
-            dias_viagem = 0  # mesma cidade / bem próximo, chega no mesmo dia
-        else:
-            dias_viagem = max(1, math.ceil(tempo_horas / 10))  # ~10h úteis de direção por dia
+        dias_viagem = 0 if tempo_horas <= 1 else max(1, math.ceil(tempo_horas / 10))
         return data_ref.normalize() + timedelta(days=dias_viagem)
 
-    # --- MONTAGEM UNIFICADA POR PEDIDO (junta itens abertos + já faturados) ---
     todos_numeros_pedido = set(df_carteira_f['PEDIDO'].astype(str))
     if not df_fat_f.empty:
         todos_numeros_pedido |= set(df_fat_f['PEDIDO'].astype(str))
@@ -1334,7 +1313,7 @@ def exibir_meus_pedidos():
 
         for _, item in itens_abertos.iterrows():
             status_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[item['STATUS_ORDEM']]
-            chave_item = (pedido, _normalizar_produto(item.get('PRODUTO', '')))
+            chave_item = (pedido, _normalizar_produto_mp(item.get('PRODUTO', '')))
             if status_txt == "Aberto":
                 prazo_maquina = "Aguardando Programar"
             else:
@@ -1348,7 +1327,7 @@ def exibir_meus_pedidos():
             })
 
         for _, item in itens_fat.iterrows():
-            chave_item = (pedido, _normalizar_produto(item.get('PRODUTO', '')))
+            chave_item = (pedido, _normalizar_produto_mp(item.get('PRODUTO', '')))
             prazo_maquina = programados_prazo.get(chave_item)
             eta = _calcular_eta(item.get('EMISSAO_DT'), filial, municipio_entrega, uf_entrega)
             if eta is not None: etas.append(eta)
@@ -1378,10 +1357,37 @@ def exibir_meus_pedidos():
             'TEM_ITENS_FATURADOS': not itens_fat.empty,
         })
 
+    return pedidos_final
+
+
+def exibir_meus_pedidos():
+    tipo_usuario = st.session_state['usuario_tipo'].lower()
+    nome_filtro = st.session_state['usuario_filtro']
+
+    df_carteira = obter_dados_persistentes("cache_carteira_mp", carregar_dados_carteira)
+    df_faturados = obter_dados_persistentes("cache_pedidos_faturados", carregar_dados_pedidos_faturados)
+    df_distancias = obter_dados_persistentes("cache_distancias_mp", carregar_cache_distancias_painel)
+    df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
+
+    if df_carteira is None or df_carteira.empty:
+        st.info("Não foi possível carregar os dados da Carteira no momento.")
+        return
+
+    filtro_vendedor = "Todos"
+    if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
+        vendedores_unicos = sorted(df_carteira['VENDEDOR'].dropna().unique())
+        filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
+
+    pedidos_final = _montar_pedidos_meus_pedidos(
+        df_carteira, df_faturados, df_distancias, df_programados,
+        tipo_usuario, nome_filtro, filtro_vendedor
+    )
+
     if not pedidos_final:
         st.info("Nenhum pedido encontrado para os filtros atuais.")
         return
 
+    hoje_naive = datetime.now(FUSO_BR).replace(tzinfo=None)
     nao_faturados = [p for p in pedidos_final if p['STATUS_TEXTO'] != "Faturado"]
     total_abertos = len(nao_faturados)
     volume_total = sum(p['PESO_TOTAL'] for p in nao_faturados)
@@ -1484,7 +1490,7 @@ def exibir_meus_pedidos():
     if qtd_exibida < total_filtrado:
         if st.button("Carregar mais 25 pedidos", key="mp_carregar_mais"):
             st.session_state['mp_qtd_exibida'] += 25
-            st.rerun()          
+            st.rerun()
 
 @st.dialog("🚀 Novidade no Painel Dox: Nova Aba 'Carteira'", width="large")
 def popup_aviso_carteira():
