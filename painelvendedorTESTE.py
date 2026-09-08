@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 import altair as alt
 import time
+import math
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 import io
 
@@ -1297,7 +1298,11 @@ def exibir_meus_pedidos():
         tempo_horas = cache_dist.get((str(filial).upper(), str(municipio).upper(), str(uf).upper()))
         if tempo_horas is None:
             return None
-        return data_ref + timedelta(hours=tempo_horas)
+        if tempo_horas <= 1:
+            dias_viagem = 0  # mesma cidade / bem próximo, chega no mesmo dia
+        else:
+            dias_viagem = max(1, math.ceil(tempo_horas / 10))  # ~10h úteis de direção por dia
+        return data_ref.normalize() + timedelta(days=dias_viagem)
 
     # --- MONTAGEM UNIFICADA POR PEDIDO (junta itens abertos + já faturados) ---
     todos_numeros_pedido = set(df_carteira_f['PEDIDO'].astype(str))
@@ -1328,6 +1333,7 @@ def exibir_meus_pedidos():
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
+                'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
                 'STATUS_ITEM': status_txt, 'DATA_REF': item.get('ENTREGA_DT'), 'PREVISAO_CHEGADA': eta,
             })
 
@@ -1337,6 +1343,7 @@ def exibir_meus_pedidos():
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
+                'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
                 'STATUS_ITEM': "Faturado", 'DATA_REF': item.get('EMISSAO_DT'), 'PREVISAO_CHEGADA': eta,
             })
 
@@ -1415,17 +1422,48 @@ def exibir_meus_pedidos():
             else:
                 col_d.write("**Previsão de chegada:** —")
 
+            def _timeline_html(status_txt):
+                etapas = ["Aberto", "Programado", "Pronto", "Faturado"]
+                idx_atual = etapas.index(status_txt)
+                cores = {"Aberto": "#ef4444", "Programado": "#f59e0b", "Pronto": "#22c55e", "Faturado": "#3b82f6"}
+                partes = []
+                for i, et in enumerate(etapas):
+                    if i < idx_atual:
+                        partes.append(f"<span style='color:#9ca3af'>✓ {et}</span>")
+                    elif i == idx_atual:
+                        partes.append(f"<span style='color:{cores[et]}; font-weight:600'>● {et}</span>")
+                    else:
+                        partes.append(f"<span style='color:#d1d5db'>○ {et}</span>")
+                return " → ".join(partes)
+
             with st.expander("Ver itens"):
-                df_itens_exibir = p['ITENS'].copy()
-                df_itens_exibir['DATA_REF'] = df_itens_exibir['DATA_REF'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notna(d) else '-')
-                df_itens_exibir['PREVISAO_CHEGADA'] = df_itens_exibir['PREVISAO_CHEGADA'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notna(d) else '-')
-                st.dataframe(
-                    df_itens_exibir, hide_index=True, use_container_width=True,
-                    column_config={
-                        'DATA_REF': st.column_config.TextColumn("Data (entrega prevista / emissão NF)"),
-                        'PREVISAO_CHEGADA': st.column_config.TextColumn("Previsão de Chegada"),
-                    }
-                )
+                linhas_html = ""
+                for _, item in p['ITENS'].iterrows():
+                    data_ref_str = item['DATA_REF'].strftime('%d/%m/%Y') if pd.notna(item['DATA_REF']) else '-'
+                    eta_str = item['PREVISAO_CHEGADA'].strftime('%d/%m/%Y') if pd.notna(item['PREVISAO_CHEGADA']) else '-'
+                    lote_str = str(item.get('LOTE', '') or '-')
+                    lote_mp_str = str(item.get('LOTE_MP', '') or '-')
+                    linhas_html += f"""
+                    <tr>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{item['PRODUTO']}</td>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb; text-align:right'>{item['TONS']}</td>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_str}</td>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_mp_str}</td>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb; font-size:12px; white-space:nowrap'>{_timeline_html(item['STATUS_ITEM'])}</td>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{data_ref_str}</td>
+                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{eta_str}</td>
+                    </tr>"""
+                tabela_html = f"""
+                <table style='width:100%; border-collapse:collapse; font-size:13px'>
+                    <tr style='color:#6b7280; text-align:left'>
+                        <th style='padding:6px'>Produto</th><th style='padding:6px; text-align:right'>Tons</th>
+                        <th style='padding:6px'>Lote</th><th style='padding:6px'>Lote MP</th>
+                        <th style='padding:6px'>Linha do tempo</th><th style='padding:6px'>Data ref.</th><th style='padding:6px'>Previsão chegada</th>
+                    </tr>
+                    {linhas_html}
+                </table>
+                """
+                st.markdown(tabela_html, unsafe_allow_html=True)
 
     if qtd_exibida < total_filtrado:
         if st.button("Carregar mais 25 pedidos", key="mp_carregar_mais"):
