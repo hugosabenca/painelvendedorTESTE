@@ -495,6 +495,27 @@ def carregar_dados_carteira():
     return pd.DataFrame()
 
 @st.cache_data(ttl="5m", show_spinner=False)
+def carregar_dados_pedidos_faturados():
+    df = ler_com_retry(URL_SISTEMA, "Dados_Pedidos_Faturados")
+    if df is None: return None
+    if not df.empty:
+        df = df.astype(str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
+    return pd.DataFrame()
+
+@st.cache_data(ttl="30m", show_spinner=False)
+def carregar_cache_distancias_painel():
+    df = ler_com_retry(URL_SISTEMA, "Cache_Distancias")
+    if df is None: return None
+    if not df.empty:
+        df = df.astype(str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl="5m", show_spinner=False)
 def carregar_dados_titulos():
     df = ler_com_retry(URL_SISTEMA, "Dados_Titulos")
     if df is None: return None
@@ -1189,6 +1210,188 @@ def exibir_carteira_pedidos():
             
     else: 
         st.error("Não foi possível carregar a planilha de pedidos. Tente atualizar a página.")
+
+def exibir_meus_pedidos():
+    tipo_usuario = st.session_state['usuario_tipo'].lower()
+    nome_filtro = st.session_state['usuario_filtro']
+
+    df_carteira = obter_dados_persistentes("cache_carteira_mp", carregar_dados_carteira)
+    df_faturados = obter_dados_persistentes("cache_pedidos_faturados", carregar_dados_pedidos_faturados)
+    df_distancias = obter_dados_persistentes("cache_distancias_mp", carregar_cache_distancias_painel)
+
+    if df_carteira is None or df_carteira.empty:
+        st.info("Não foi possível carregar os dados da Carteira no momento.")
+        return
+
+    df_carteira = df_carteira.copy()
+
+    # --- FILTRO DE PERMISSÃO (mesmo padrão da aba Carteira) ---
+    if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
+        vendedores_unicos = sorted(df_carteira['VENDEDOR'].dropna().unique())
+        filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
+        df_carteira_f = df_carteira[df_carteira['VENDEDOR'] == filtro_vendedor].copy() if filtro_vendedor != "Todos" else df_carteira.copy()
+    elif tipo_usuario == "gerente comercial":
+        nome_busca = nome_filtro.lower().strip()
+        mask_g = df_carteira.get('GERENTE', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_busca, na=False)
+        mask_v = df_carteira.get('VENDEDOR', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_busca, na=False)
+        df_carteira_f = df_carteira[mask_g | mask_v].copy()
+    else:
+        df_carteira_f = df_carteira[df_carteira['VENDEDOR'].astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
+
+    if df_carteira_f.empty and (df_faturados is None or df_faturados.empty):
+        st.info("Nenhum pedido encontrado para o seu perfil.")
+        return
+
+    # --- STATUS POR ITEM: Aberto (0) / Programado (1) / Pronto (2) ---
+    def _status_item(row):
+        lote = str(row.get('LOTE', '')).strip()
+        status_pcp = str(row.get('STATUS', '')).strip()
+        if lote and lote.lower() not in ('nan', 'none', ''):
+            return 2
+        elif status_pcp and status_pcp.lower() not in ('-', 'nan', 'none', ''):
+            return 1
+        return 0
+
+    df_carteira_f['STATUS_ORDEM'] = df_carteira_f.apply(_status_item, axis=1)
+    df_carteira_f['TONS_NUM'] = df_carteira_f['TONS'].apply(converte_numero_seguro)
+
+    # --- AGRUPAMENTO POR PEDIDO (pedidos em aberto) ---
+    pedidos_abertos = []
+    for pedido, grupo in df_carteira_f.groupby('PEDIDO'):
+        primeira = grupo.iloc[0]
+        status_min = grupo['STATUS_ORDEM'].min()
+        status_texto = {0: "Aberto", 1: "Programado", 2: "Pronto"}[status_min]
+        triangular = (grupo.get('TRIANGULAR', pd.Series(['N'])).astype(str) == 'S').any()
+
+        prazo_dt = None
+        if 'ENTREGA' in grupo.columns:
+            try:
+                datas = pd.to_datetime(grupo['ENTREGA'], dayfirst=True, errors='coerce')
+                if datas.notna().any():
+                    prazo_dt = datas.max()
+            except Exception:
+                pass
+
+        pedidos_abertos.append({
+            'PEDIDO': pedido, 'FILIAL': primeira.get('FILIAL', ''), 'CLIENTE': primeira.get('CLIENTE', ''),
+            'TRIANGULAR': triangular,
+            'CLIENTE_ENTREGA': primeira.get('CLIENTE_ENTREGA', primeira.get('CLIENTE', '')),
+            'MUNICIPIO_ENTREGA': primeira.get('MUNICIPIO_ENTREGA', primeira.get('MUNICIPIO', '')),
+            'UF_ENTREGA': primeira.get('UF_ENTREGA', primeira.get('UF', '')),
+            'STATUS_ORDEM': status_min, 'STATUS_TEXTO': status_texto,
+            'PESO_TOTAL': grupo['TONS_NUM'].sum(), 'ITENS': grupo, 'PRAZO_DT': prazo_dt,
+        })
+
+    # --- PEDIDOS FATURADOS QUE JÁ SAÍRAM DA CARTEIRA ---
+    pedidos_faturados = []
+    if isinstance(df_faturados, pd.DataFrame) and not df_faturados.empty and 'PEDIDO' in df_faturados.columns:
+        df_faturados = df_faturados.copy()
+        pedidos_em_aberto_nums = set(df_carteira_f['PEDIDO'].astype(str))
+
+        if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
+            df_fat_f = df_faturados.copy()
+        elif tipo_usuario == "gerente comercial":
+            nome_busca = nome_filtro.lower().strip()
+            mask_g = df_faturados.get('GERENTE', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_busca, na=False)
+            mask_v = df_faturados.get('VENDEDOR', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_busca, na=False)
+            df_fat_f = df_faturados[mask_g | mask_v].copy()
+        else:
+            df_fat_f = df_faturados[df_faturados.get('VENDEDOR', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
+
+        df_fat_f['TONS_NUM'] = df_fat_f['TONS'].apply(converte_numero_seguro) if 'TONS' in df_fat_f.columns else 0
+
+        cache_dist = {}
+        if isinstance(df_distancias, pd.DataFrame) and not df_distancias.empty:
+            for _, r in df_distancias.iterrows():
+                try:
+                    cache_dist[(str(r['FILIAL']).upper(), str(r['MUNICIPIO']).upper(), str(r['UF']).upper())] = float(str(r['TEMPO_HORAS']).replace(',', '.'))
+                except Exception:
+                    continue
+
+        hoje = datetime.now(FUSO_BR).replace(tzinfo=None)
+
+        for pedido, grupo in df_fat_f.groupby('PEDIDO'):
+            if str(pedido) in pedidos_em_aberto_nums:
+                continue  # ainda tem item pendente na Carteira
+
+            primeira = grupo.iloc[0]
+            filial = str(primeira.get('FILIAL', '')).upper()
+            municipio = str(primeira.get('MUNICIPIO_ENTREGA', '')).upper()
+            uf = str(primeira.get('UF_ENTREGA', '')).upper()
+            tempo_horas = cache_dist.get((filial, municipio, uf))
+
+            try:
+                emissao_dt = pd.to_datetime(grupo['EMISSAO_NF'], dayfirst=True, errors='coerce').max()
+            except Exception:
+                emissao_dt = None
+
+            eta_dt = None
+            if emissao_dt is not None and pd.notna(emissao_dt) and tempo_horas is not None:
+                eta_dt = emissao_dt + timedelta(hours=tempo_horas)
+
+            if eta_dt is not None and (hoje - eta_dt).days > 7:
+                continue  # passou 7 dias da previsão, some da lista
+
+            triangular = (grupo.get('TRIANGULAR', pd.Series(['N'])).astype(str) == 'S').any()
+
+            pedidos_faturados.append({
+                'PEDIDO': pedido, 'FILIAL': primeira.get('FILIAL', ''), 'CLIENTE': primeira.get('CLIENTE', ''),
+                'TRIANGULAR': triangular,
+                'CLIENTE_ENTREGA': primeira.get('CLIENTE_ENTREGA', primeira.get('CLIENTE', '')),
+                'MUNICIPIO_ENTREGA': primeira.get('MUNICIPIO_ENTREGA', primeira.get('MUNICIPIO', '')),
+                'UF_ENTREGA': primeira.get('UF_ENTREGA', primeira.get('UF', '')),
+                'STATUS_ORDEM': 3, 'STATUS_TEXTO': "Faturado",
+                'PESO_TOTAL': grupo['TONS_NUM'].sum(), 'ITENS': grupo, 'PRAZO_DT': eta_dt,
+            })
+
+    todos_pedidos = pedidos_abertos + pedidos_faturados
+    if not todos_pedidos:
+        st.info("Nenhum pedido encontrado para os filtros atuais.")
+        return
+
+    total_abertos = len(pedidos_abertos)
+    volume_total = sum(p['PESO_TOTAL'] for p in pedidos_abertos)
+    hoje_naive = datetime.now(FUSO_BR).replace(tzinfo=None)
+    atrasados = sum(1 for p in pedidos_abertos if p['PRAZO_DT'] is not None and pd.notna(p['PRAZO_DT']) and p['PRAZO_DT'] < hoje_naive)
+
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric("Pedidos em Aberto", total_abertos)
+    kpi2.metric("Volume Total (Tons)", formatar_peso_brasileiro(volume_total))
+    kpi3.metric("Previsão Vencida", atrasados)
+    st.divider()
+
+    texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
+
+    for p in sorted(todos_pedidos, key=lambda x: x['STATUS_ORDEM']):
+        if texto_busca:
+            alvo = f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()
+            if texto_busca.lower() not in alvo:
+                continue
+
+        with st.container(border=True):
+            col_a, col_b = st.columns([3, 1])
+            with col_a:
+                st.markdown(f"**Pedido {p['PEDIDO']}** — {str(p['CLIENTE']).strip().title()}")
+            with col_b:
+                cor_status = {"Aberto": "🔴", "Programado": "🟡", "Pronto": "🟢", "Faturado": "🔵"}
+                st.markdown(f"{cor_status.get(p['STATUS_TEXTO'], '⚪')} {p['STATUS_TEXTO']}")
+
+            if p['TRIANGULAR']:
+                st.caption(f"🔀 Entrega em: {str(p['CLIENTE_ENTREGA']).strip().title()} — {str(p['MUNICIPIO_ENTREGA']).strip().title()}/{p['UF_ENTREGA']}")
+
+            etapas = ["Aberto", "Programado", "Pronto", "Faturado"]
+            st.progress((etapas.index(p['STATUS_TEXTO']) + 1) / len(etapas))
+
+            col_c, col_d = st.columns(2)
+            col_c.write(f"**Peso:** {formatar_peso_brasileiro(p['PESO_TOTAL'])} ton")
+            if p['PRAZO_DT'] is not None and pd.notna(p['PRAZO_DT']):
+                col_d.write(f"**Previsão:** {p['PRAZO_DT'].strftime('%d/%m/%Y')}")
+            else:
+                col_d.write("**Previsão:** —")
+
+            with st.expander("Ver itens"):
+                cols_itens = [c for c in ['PRODUTO', 'TONS', 'LOTE', 'STATUS', 'ENTREGA'] if c in p['ITENS'].columns]
+                st.dataframe(p['ITENS'][cols_itens] if cols_itens else p['ITENS'], hide_index=True, use_container_width=True)
 
 @st.dialog("🚀 Novidade no Painel Dox: Nova Aba 'Carteira'", width="large")
 def popup_aviso_carteira():
@@ -2065,10 +2268,11 @@ else:
         
         if st.session_state['usuario_tipo'].lower() == "admin":
             # Adicionei "📂 Carteira" no início (a0)
-            a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
+            a0, a1, aMP, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
             
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
+            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_credito()
             with a3: exibir_aba_estoque()
             with a4: exibir_aba_fotos(True)
@@ -2081,9 +2285,10 @@ else:
             with a11: exibir_aba_manutencao() 
             
         elif st.session_state['usuario_tipo'].lower() == "master":
-            a0, a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+            a0, a1, aMP, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
+            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_credito()
             with a3: exibir_aba_estoque() 
             with a4: exibir_aba_fotos(False) 
@@ -2093,9 +2298,10 @@ else:
             with a8: exibir_aba_producao()
 
         elif st.session_state['usuario_tipo'].lower() in ["logística", "logistica", "pcp"]:
-            a0, a1, a2, a3, a4, a5 = st.tabs(["📂 Carteira", "📂 Itens Programados", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            a0, a1, aMP, a2, a3, a4, a5 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
+            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_estoque()
             with a3: exibir_aba_fotos(True) 
             with a4: exibir_aba_certificados(True) 
@@ -2113,9 +2319,10 @@ else:
             
         else:
             # Vendedores e Gerentes Padrão
-            a0, a1, a2, a3, a4, a5, a6 = st.tabs(["📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            a0, a1, aMP, a2, a3, a4, a5, a6 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
+            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_credito()
             with a3: exibir_aba_estoque() 
             with a4: exibir_aba_fotos(False) 
