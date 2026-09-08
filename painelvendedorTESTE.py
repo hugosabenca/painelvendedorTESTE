@@ -1225,7 +1225,7 @@ def exibir_meus_pedidos():
 
     df_carteira = df_carteira.copy()
 
-    # --- FILTRO DE PERMISSÃO (mesmo padrão da aba Carteira) ---
+    # --- FILTRO DE PERMISSÃO NA CARTEIRA ---
     if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
         vendedores_unicos = sorted(df_carteira['VENDEDOR'].dropna().unique())
         filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
@@ -1238,71 +1238,12 @@ def exibir_meus_pedidos():
     else:
         df_carteira_f = df_carteira[df_carteira['VENDEDOR'].astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
 
-    if df_carteira_f.empty and (df_faturados is None or df_faturados.empty):
-        st.info("Nenhum pedido encontrado para o seu perfil.")
-        return
-
-    # --- CARREGA ITENS PROGRAMADOS (PCP/Dox 360) PARA SABER O QUE JÁ FOI ALOCADO EM MÁQUINA ---
-    def _normalizar_produto(texto):
-        return ' '.join(str(texto).upper().split())
-
-    df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
-    programados_set = set()
-    if isinstance(df_programados, pd.DataFrame) and not df_programados.empty:
-        if 'Número do Pedido' in df_programados.columns and 'Produto' in df_programados.columns:
-            for _, r in df_programados.iterrows():
-                pedido_p = str(r['Número do Pedido']).strip()
-                produto_p = _normalizar_produto(r['Produto'])
-                programados_set.add((pedido_p, produto_p))
-
-    # --- STATUS POR ITEM: Aberto (0) / Programado (1) / Pronto (2) ---
-    def _status_item(row):
-        lote = str(row.get('LOTE', '')).strip()
-        if lote and lote.lower() not in ('nan', 'none', ''):
-            return 2
-        chave = (str(row.get('PEDIDO', '')).strip(), _normalizar_produto(row.get('PRODUTO', '')))
-        if chave in programados_set:
-            return 1
-        return 0
-
-    df_carteira_f['STATUS_ORDEM'] = df_carteira_f.apply(_status_item, axis=1)
-    df_carteira_f['TONS_NUM'] = df_carteira_f['TONS'].apply(converte_numero_seguro)
-
-    # --- AGRUPAMENTO POR PEDIDO (pedidos em aberto) ---
-    pedidos_abertos = []
-    for pedido, grupo in df_carteira_f.groupby('PEDIDO'):
-        primeira = grupo.iloc[0]
-        status_min = grupo['STATUS_ORDEM'].min()
-        status_texto = {0: "Aberto", 1: "Programado", 2: "Pronto"}[status_min]
-        triangular = (grupo.get('TRIANGULAR', pd.Series(['N'])).astype(str) == 'S').any()
-
-        prazo_dt = None
-        if 'ENTREGA' in grupo.columns:
-            try:
-                datas = pd.to_datetime(grupo['ENTREGA'], dayfirst=True, errors='coerce')
-                if datas.notna().any():
-                    prazo_dt = datas.max()
-            except Exception:
-                pass
-
-        pedidos_abertos.append({
-            'PEDIDO': pedido, 'FILIAL': primeira.get('FILIAL', ''), 'CLIENTE': primeira.get('CLIENTE', ''),
-            'TRIANGULAR': triangular,
-            'CLIENTE_ENTREGA': primeira.get('CLIENTE_ENTREGA', primeira.get('CLIENTE', '')),
-            'MUNICIPIO_ENTREGA': primeira.get('MUNICIPIO_ENTREGA', primeira.get('MUNICIPIO', '')),
-            'UF_ENTREGA': primeira.get('UF_ENTREGA', primeira.get('UF', '')),
-            'STATUS_ORDEM': status_min, 'STATUS_TEXTO': status_texto,
-            'PESO_TOTAL': grupo['TONS_NUM'].sum(), 'ITENS': grupo, 'PRAZO_DT': prazo_dt,
-        })
-
-    # --- PEDIDOS FATURADOS QUE JÁ SAÍRAM DA CARTEIRA ---
-    pedidos_faturados = []
+    # --- FILTRO DE PERMISSÃO NOS FATURADOS (mesma lógica) ---
+    df_fat_f = pd.DataFrame()
     if isinstance(df_faturados, pd.DataFrame) and not df_faturados.empty and 'PEDIDO' in df_faturados.columns:
         df_faturados = df_faturados.copy()
-        pedidos_em_aberto_nums = set(df_carteira_f['PEDIDO'].astype(str))
-
         if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
-            df_fat_f = df_faturados.copy()
+            df_fat_f = df_faturados.copy() if filtro_vendedor == "Todos" else df_faturados[df_faturados['VENDEDOR'] == filtro_vendedor].copy()
         elif tipo_usuario == "gerente comercial":
             nome_busca = nome_filtro.lower().strip()
             mask_g = df_faturados.get('GERENTE', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_busca, na=False)
@@ -1311,61 +1252,121 @@ def exibir_meus_pedidos():
         else:
             df_fat_f = df_faturados[df_faturados.get('VENDEDOR', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
 
+    if df_carteira_f.empty and df_fat_f.empty:
+        st.info("Nenhum pedido encontrado para o seu perfil.")
+        return
+
+    # --- ITENS PROGRAMADOS (PCP/Dox 360) — define o que já foi alocado em máquina ---
+    def _normalizar_produto(texto):
+        return ' '.join(str(texto).upper().split())
+
+    df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
+    programados_set = set()
+    if isinstance(df_programados, pd.DataFrame) and not df_programados.empty:
+        if 'Número do Pedido' in df_programados.columns and 'Produto' in df_programados.columns:
+            for _, r in df_programados.iterrows():
+                programados_set.add((str(r['Número do Pedido']).strip(), _normalizar_produto(r['Produto'])))
+
+    def _status_item(row):
+        lote = str(row.get('LOTE', '')).strip()
+        if lote and lote.lower() not in ('nan', 'none', ''):
+            return 2
+        chave = (str(row.get('PEDIDO', '')).strip(), _normalizar_produto(row.get('PRODUTO', '')))
+        return 1 if chave in programados_set else 0
+
+    df_carteira_f['STATUS_ORDEM'] = df_carteira_f.apply(_status_item, axis=1)
+    df_carteira_f['TONS_NUM'] = df_carteira_f['TONS'].apply(converte_numero_seguro)
+    df_carteira_f['ENTREGA_DT'] = pd.to_datetime(df_carteira_f['ENTREGA'], dayfirst=True, errors='coerce') if 'ENTREGA' in df_carteira_f.columns else pd.NaT
+
+    if not df_fat_f.empty:
         df_fat_f['TONS_NUM'] = df_fat_f['TONS'].apply(converte_numero_seguro) if 'TONS' in df_fat_f.columns else 0
+        df_fat_f['EMISSAO_DT'] = pd.to_datetime(df_fat_f['EMISSAO_NF'], dayfirst=True, errors='coerce') if 'EMISSAO_NF' in df_fat_f.columns else pd.NaT
 
-        cache_dist = {}
-        if isinstance(df_distancias, pd.DataFrame) and not df_distancias.empty:
-            for _, r in df_distancias.iterrows():
-                try:
-                    cache_dist[(str(r['FILIAL']).upper(), str(r['MUNICIPIO']).upper(), str(r['UF']).upper())] = float(str(r['TEMPO_HORAS']).replace(',', '.'))
-                except Exception:
-                    continue
-
-        hoje = datetime.now(FUSO_BR).replace(tzinfo=None)
-
-        for pedido, grupo in df_fat_f.groupby('PEDIDO'):
-            if str(pedido) in pedidos_em_aberto_nums:
-                continue  # ainda tem item pendente na Carteira
-
-            primeira = grupo.iloc[0]
-            filial = str(primeira.get('FILIAL', '')).upper()
-            municipio = str(primeira.get('MUNICIPIO_ENTREGA', '')).upper()
-            uf = str(primeira.get('UF_ENTREGA', '')).upper()
-            tempo_horas = cache_dist.get((filial, municipio, uf))
-
+    # --- CACHE DE DISTÂNCIAS ---
+    cache_dist = {}
+    if isinstance(df_distancias, pd.DataFrame) and not df_distancias.empty:
+        for _, r in df_distancias.iterrows():
             try:
-                emissao_dt = pd.to_datetime(grupo['EMISSAO_NF'], dayfirst=True, errors='coerce').max()
+                cache_dist[(str(r['FILIAL']).upper(), str(r['MUNICIPIO']).upper(), str(r['UF']).upper())] = float(str(r['TEMPO_HORAS']).replace(',', '.'))
             except Exception:
-                emissao_dt = None
+                continue
 
-            eta_dt = None
-            if emissao_dt is not None and pd.notna(emissao_dt) and tempo_horas is not None:
-                eta_dt = emissao_dt + timedelta(hours=tempo_horas)
+    def _calcular_eta(data_ref, filial, municipio, uf):
+        if data_ref is None or pd.isna(data_ref):
+            return None
+        tempo_horas = cache_dist.get((str(filial).upper(), str(municipio).upper(), str(uf).upper()))
+        if tempo_horas is None:
+            return None
+        return data_ref + timedelta(hours=tempo_horas)
 
-            if eta_dt is not None and (hoje - eta_dt).days > 7:
-                continue  # passou 7 dias da previsão, some da lista
+    # --- MONTAGEM UNIFICADA POR PEDIDO (junta itens abertos + já faturados) ---
+    todos_numeros_pedido = set(df_carteira_f['PEDIDO'].astype(str))
+    if not df_fat_f.empty:
+        todos_numeros_pedido |= set(df_fat_f['PEDIDO'].astype(str))
 
-            triangular = (grupo.get('TRIANGULAR', pd.Series(['N'])).astype(str) == 'S').any()
+    hoje_naive = datetime.now(FUSO_BR).replace(tzinfo=None)
+    pedidos_final = []
 
-            pedidos_faturados.append({
-                'PEDIDO': pedido, 'FILIAL': primeira.get('FILIAL', ''), 'CLIENTE': primeira.get('CLIENTE', ''),
-                'TRIANGULAR': triangular,
-                'CLIENTE_ENTREGA': primeira.get('CLIENTE_ENTREGA', primeira.get('CLIENTE', '')),
-                'MUNICIPIO_ENTREGA': primeira.get('MUNICIPIO_ENTREGA', primeira.get('MUNICIPIO', '')),
-                'UF_ENTREGA': primeira.get('UF_ENTREGA', primeira.get('UF', '')),
-                'STATUS_ORDEM': 3, 'STATUS_TEXTO': "Faturado",
-                'PESO_TOTAL': grupo['TONS_NUM'].sum(), 'ITENS': grupo, 'PRAZO_DT': eta_dt,
+    for pedido in todos_numeros_pedido:
+        itens_abertos = df_carteira_f[df_carteira_f['PEDIDO'].astype(str) == pedido]
+        itens_fat = df_fat_f[df_fat_f['PEDIDO'].astype(str) == pedido] if not df_fat_f.empty else pd.DataFrame()
+
+        linha_ref = itens_abertos.iloc[0] if not itens_abertos.empty else itens_fat.iloc[0]
+        filial = linha_ref.get('FILIAL', '')
+        municipio_entrega = linha_ref.get('MUNICIPIO_ENTREGA', linha_ref.get('MUNICIPIO', ''))
+        uf_entrega = linha_ref.get('UF_ENTREGA', linha_ref.get('UF', ''))
+        cliente_entrega = linha_ref.get('CLIENTE_ENTREGA', linha_ref.get('CLIENTE', ''))
+        cliente = linha_ref.get('CLIENTE', '')
+        triangular = False
+        linhas_itens = []
+        etas = []
+
+        for _, item in itens_abertos.iterrows():
+            status_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[item['STATUS_ORDEM']]
+            eta = _calcular_eta(item.get('ENTREGA_DT'), filial, municipio_entrega, uf_entrega)
+            if eta is not None: etas.append(eta)
+            if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
+            linhas_itens.append({
+                'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
+                'STATUS_ITEM': status_txt, 'DATA_REF': item.get('ENTREGA_DT'), 'PREVISAO_CHEGADA': eta,
             })
 
-    todos_pedidos = pedidos_abertos + pedidos_faturados
-    if not todos_pedidos:
+        for _, item in itens_fat.iterrows():
+            eta = _calcular_eta(item.get('EMISSAO_DT'), filial, municipio_entrega, uf_entrega)
+            if eta is not None: etas.append(eta)
+            if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
+            linhas_itens.append({
+                'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
+                'STATUS_ITEM': "Faturado", 'DATA_REF': item.get('EMISSAO_DT'), 'PREVISAO_CHEGADA': eta,
+            })
+
+        if itens_abertos.empty:
+            status_geral_ordem, status_geral_txt = 3, "Faturado"
+            eta_maxima = max(etas) if etas else None
+            if eta_maxima is not None and (hoje_naive - eta_maxima).days > 7:
+                continue
+        else:
+            status_geral_ordem = itens_abertos['STATUS_ORDEM'].min()
+            status_geral_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[status_geral_ordem]
+
+        pedidos_final.append({
+            'PEDIDO': pedido, 'FILIAL': filial, 'CLIENTE': cliente, 'TRIANGULAR': triangular,
+            'CLIENTE_ENTREGA': cliente_entrega, 'MUNICIPIO_ENTREGA': municipio_entrega, 'UF_ENTREGA': uf_entrega,
+            'STATUS_ORDEM': status_geral_ordem, 'STATUS_TEXTO': status_geral_txt,
+            'PESO_TOTAL': sum(l['TONS'] for l in linhas_itens),
+            'ITENS': pd.DataFrame(linhas_itens),
+            'PRAZO_DT': max(etas) if etas else None,
+            'TEM_ITENS_FATURADOS': not itens_fat.empty,
+        })
+
+    if not pedidos_final:
         st.info("Nenhum pedido encontrado para os filtros atuais.")
         return
 
-    total_abertos = len(pedidos_abertos)
-    volume_total = sum(p['PESO_TOTAL'] for p in pedidos_abertos)
-    hoje_naive = datetime.now(FUSO_BR).replace(tzinfo=None)
-    atrasados = sum(1 for p in pedidos_abertos if p['PRAZO_DT'] is not None and pd.notna(p['PRAZO_DT']) and p['PRAZO_DT'] < hoje_naive)
+    nao_faturados = [p for p in pedidos_final if p['STATUS_TEXTO'] != "Faturado"]
+    total_abertos = len(nao_faturados)
+    volume_total = sum(p['PESO_TOTAL'] for p in nao_faturados)
+    atrasados = sum(1 for p in nao_faturados if p['PRAZO_DT'] is not None and p['PRAZO_DT'] < hoje_naive)
 
     kpi1, kpi2, kpi3 = st.columns(3)
     kpi1.metric("Pedidos em Aberto", total_abertos)
@@ -1375,13 +1376,10 @@ def exibir_meus_pedidos():
 
     texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
 
-    pedidos_ordenados = sorted(todos_pedidos, key=lambda x: x['STATUS_ORDEM'])
+    pedidos_ordenados = sorted(pedidos_final, key=lambda x: x['STATUS_ORDEM'])
     if texto_busca:
         alvo_busca = texto_busca.lower()
-        pedidos_ordenados = [
-            p for p in pedidos_ordenados
-            if alvo_busca in f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()
-        ]
+        pedidos_ordenados = [p for p in pedidos_ordenados if alvo_busca in f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()]
 
     if 'mp_qtd_exibida' not in st.session_state:
         st.session_state['mp_qtd_exibida'] = 25
@@ -1404,23 +1402,35 @@ def exibir_meus_pedidos():
             else:
                 st.caption(f"📍 Destino: {str(p['MUNICIPIO_ENTREGA']).strip().title()}/{p['UF_ENTREGA']}")
 
+            if p['STATUS_TEXTO'] != "Faturado" and p['TEM_ITENS_FATURADOS']:
+                st.caption("✅ Parte deste pedido já foi faturada — veja o detalhe em 'Ver itens'.")
+
             etapas = ["Aberto", "Programado", "Pronto", "Faturado"]
             st.progress((etapas.index(p['STATUS_TEXTO']) + 1) / len(etapas))
 
             col_c, col_d = st.columns(2)
             col_c.write(f"**Peso:** {formatar_peso_brasileiro(p['PESO_TOTAL'])} ton")
             if p['PRAZO_DT'] is not None and pd.notna(p['PRAZO_DT']):
-                col_d.write(f"**Previsão:** {p['PRAZO_DT'].strftime('%d/%m/%Y')}")
+                col_d.write(f"**Previsão de chegada:** {p['PRAZO_DT'].strftime('%d/%m/%Y')}")
             else:
-                col_d.write("**Previsão:** —")
+                col_d.write("**Previsão de chegada:** —")
 
             with st.expander("Ver itens"):
-                cols_itens = [c for c in ['PRODUTO', 'TONS', 'LOTE', 'STATUS', 'ENTREGA'] if c in p['ITENS'].columns]
-                st.dataframe(p['ITENS'][cols_itens] if cols_itens else p['ITENS'], hide_index=True, use_container_width=True)
+                df_itens_exibir = p['ITENS'].copy()
+                df_itens_exibir['DATA_REF'] = df_itens_exibir['DATA_REF'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notna(d) else '-')
+                df_itens_exibir['PREVISAO_CHEGADA'] = df_itens_exibir['PREVISAO_CHEGADA'].apply(lambda d: d.strftime('%d/%m/%Y') if pd.notna(d) else '-')
+                st.dataframe(
+                    df_itens_exibir, hide_index=True, use_container_width=True,
+                    column_config={
+                        'DATA_REF': st.column_config.TextColumn("Data (entrega prevista / emissão NF)"),
+                        'PREVISAO_CHEGADA': st.column_config.TextColumn("Previsão de Chegada"),
+                    }
+                )
+
     if qtd_exibida < total_filtrado:
         if st.button("Carregar mais 25 pedidos", key="mp_carregar_mais"):
             st.session_state['mp_qtd_exibida'] += 25
-            st.rerun()            
+            st.rerun()          
 
 @st.dialog("🚀 Novidade no Painel Dox: Nova Aba 'Carteira'", width="large")
 def popup_aviso_carteira():
