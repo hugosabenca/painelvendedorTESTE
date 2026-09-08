@@ -1477,17 +1477,17 @@ def exibir_meus_pedidos():
                 nodes_html = ""
                 for i in range(4):
                     if i < idx_atual:
-                        circulo = "<div style='width:16px; height:16px; border-radius:50%; background:#e5e7eb; display:flex; align-items:center; justify-content:center; font-size:9px; color:#6b7280'>✓</div>"
+                        circulo = "<div style='width:22px; height:22px; border-radius:50%; background:#e5e7eb; display:flex; align-items:center; justify-content:center; font-size:12px; color:#6b7280'>✓</div>"
                     elif i == idx_atual:
-                        circulo = f"<div style='width:18px; height:18px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:10px'>{icones[i]}</div>"
+                        circulo = f"<div style='width:26px; height:26px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:14px'>{icones[i]}</div>"
                     else:
-                        circulo = "<div style='width:16px; height:16px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb'></div>"
+                        circulo = "<div style='width:22px; height:22px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb'></div>"
                     nodes_html += circulo
                     if i < 3:
                         linha_cor = "#d1d5db" if i >= idx_atual else "#9ca3af"
-                        nodes_html += f"<div style='width:12px; height:2px; background:{linha_cor}'></div>"
+                        nodes_html += f"<div style='width:20px; height:3px; background:{linha_cor}'></div>"
 
-                label_atual = f"<div style='font-size:10px; color:{cores[idx_atual]}; font-weight:600; margin-top:2px; white-space:nowrap'>{labels[idx_atual]}</div>"
+                label_atual = f"<div style='font-size:12px; color:{cores[idx_atual]}; font-weight:600; margin-top:4px; white-space:nowrap'>{labels[idx_atual]}</div>"
                 return f"<div style='display:flex; flex-direction:column; align-items:flex-start'><div style='display:flex; align-items:center'>{nodes_html}</div>{label_atual}</div>"
 
             with st.expander("Ver itens"):
