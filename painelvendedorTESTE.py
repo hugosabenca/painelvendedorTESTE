@@ -1335,7 +1335,10 @@ def exibir_meus_pedidos():
         for _, item in itens_abertos.iterrows():
             status_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[item['STATUS_ORDEM']]
             chave_item = (pedido, _normalizar_produto(item.get('PRODUTO', '')))
-            prazo_maquina = programados_prazo.get(chave_item, item.get('ENTREGA_DT'))
+            if status_txt == "Aberto":
+                prazo_maquina = "Aguardando Programar"
+            else:
+                prazo_maquina = programados_prazo.get(chave_item, item.get('ENTREGA_DT'))
             previsao_chegada = "Aguardando Ficar Pronto" if item['STATUS_ORDEM'] < 2 else "Aguardando Logística"
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
