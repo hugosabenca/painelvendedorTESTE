@@ -1441,7 +1441,12 @@ def exibir_meus_pedidos():
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
                     data_ref_val = item['DATA_REF']
-                    data_ref_str = data_ref_val.strftime('%d/%m/%Y') if isinstance(data_ref_val, pd.Timestamp) and pd.notna(data_ref_val) else '-'
+                    if isinstance(data_ref_val, pd.Timestamp) and pd.notna(data_ref_val):
+                        data_ref_str = data_ref_val.strftime('%d/%m/%Y')
+                    elif isinstance(data_ref_val, str):
+                        data_ref_str = data_ref_val
+                    else:
+                        data_ref_str = '-'
                     eta_val = item['PREVISAO_CHEGADA']
                     if isinstance(eta_val, pd.Timestamp) and pd.notna(eta_val):
                         eta_str = eta_val.strftime('%d/%m/%Y')
