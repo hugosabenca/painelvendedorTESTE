@@ -1318,6 +1318,8 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             return cache_ceps[cep_norm]
         return _normalizar_texto_mp(municipio_bruto), str(uf_bruto).strip().upper()
 
+    DIAS_FOLGA_SEGURANCA = 1  # margem extra pra imprevistos (fila de descarga, feriado, etc.)
+
     def _calcular_eta(data_ref, filial, municipio, uf):
         if data_ref is None or pd.isna(data_ref):
             return None
@@ -1325,7 +1327,7 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
         if tempo_horas is None:
             return None
         dias_viagem = 0 if tempo_horas <= 1 else max(1, math.ceil(tempo_horas / 10))
-        return data_ref.normalize() + timedelta(days=dias_viagem)
+        return data_ref.normalize() + timedelta(days=dias_viagem + DIAS_FOLGA_SEGURANCA)
 
     todos_numeros_pedido = set(df_carteira_f['PEDIDO'].astype(str))
     if not df_fat_f.empty:
