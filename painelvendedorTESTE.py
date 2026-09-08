@@ -1362,12 +1362,22 @@ def exibir_meus_pedidos():
 
     texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
 
-    for p in sorted(todos_pedidos, key=lambda x: x['STATUS_ORDEM']):
-        if texto_busca:
-            alvo = f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()
-            if texto_busca.lower() not in alvo:
-                continue
+    pedidos_ordenados = sorted(todos_pedidos, key=lambda x: x['STATUS_ORDEM'])
+    if texto_busca:
+        alvo_busca = texto_busca.lower()
+        pedidos_ordenados = [
+            p for p in pedidos_ordenados
+            if alvo_busca in f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()
+        ]
 
+    if 'mp_qtd_exibida' not in st.session_state:
+        st.session_state['mp_qtd_exibida'] = 25
+
+    total_filtrado = len(pedidos_ordenados)
+    qtd_exibida = min(st.session_state['mp_qtd_exibida'], total_filtrado)
+    st.caption(f"Mostrando {qtd_exibida} de {total_filtrado} pedido(s).")
+
+    for p in pedidos_ordenados[:qtd_exibida]:
         with st.container(border=True):
             col_a, col_b = st.columns([3, 1])
             with col_a:
@@ -1392,6 +1402,10 @@ def exibir_meus_pedidos():
             with st.expander("Ver itens"):
                 cols_itens = [c for c in ['PRODUTO', 'TONS', 'LOTE', 'STATUS', 'ENTREGA'] if c in p['ITENS'].columns]
                 st.dataframe(p['ITENS'][cols_itens] if cols_itens else p['ITENS'], hide_index=True, use_container_width=True)
+    if qtd_exibida < total_filtrado:
+        if st.button("Carregar mais 25 pedidos", key="mp_carregar_mais"):
+            st.session_state['mp_qtd_exibida'] += 25
+            st.rerun()            
 
 @st.dialog("🚀 Novidade no Painel Dox: Nova Aba 'Carteira'", width="large")
 def popup_aviso_carteira():
