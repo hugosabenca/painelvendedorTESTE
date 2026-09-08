@@ -1366,8 +1366,7 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             })
 
         for _, item in itens_fat.iterrows():
-            chave_item = (pedido, _normalizar_produto_mp(item.get('PRODUTO', '')))
-            prazo_maquina = programados_prazo.get(chave_item)
+            prazo_maquina = None  # já foi faturado — "prev. ficar pronto" não se aplica mais
             eta = _calcular_eta(item.get('EMISSAO_DT'), filial, municipio_entrega, uf_entrega)
             if eta is not None: etas.append(eta)
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
