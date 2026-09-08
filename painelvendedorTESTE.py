@@ -1242,13 +1242,26 @@ def exibir_meus_pedidos():
         st.info("Nenhum pedido encontrado para o seu perfil.")
         return
 
+    # --- CARREGA ITENS PROGRAMADOS (PCP/Dox 360) PARA SABER O QUE JÁ FOI ALOCADO EM MÁQUINA ---
+    def _normalizar_produto(texto):
+        return ' '.join(str(texto).upper().split())
+
+    df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
+    programados_set = set()
+    if isinstance(df_programados, pd.DataFrame) and not df_programados.empty:
+        if 'Número do Pedido' in df_programados.columns and 'Produto' in df_programados.columns:
+            for _, r in df_programados.iterrows():
+                pedido_p = str(r['Número do Pedido']).strip()
+                produto_p = _normalizar_produto(r['Produto'])
+                programados_set.add((pedido_p, produto_p))
+
     # --- STATUS POR ITEM: Aberto (0) / Programado (1) / Pronto (2) ---
     def _status_item(row):
         lote = str(row.get('LOTE', '')).strip()
-        status_pcp = str(row.get('STATUS', '')).strip()
         if lote and lote.lower() not in ('nan', 'none', ''):
             return 2
-        elif status_pcp and status_pcp.lower() not in ('-', 'nan', 'none', ''):
+        chave = (str(row.get('PEDIDO', '')).strip(), _normalizar_produto(row.get('PRODUTO', '')))
+        if chave in programados_set:
             return 1
         return 0
 
@@ -1388,6 +1401,8 @@ def exibir_meus_pedidos():
 
             if p['TRIANGULAR']:
                 st.caption(f"🔀 Entrega em: {str(p['CLIENTE_ENTREGA']).strip().title()} — {str(p['MUNICIPIO_ENTREGA']).strip().title()}/{p['UF_ENTREGA']}")
+            else:
+                st.caption(f"📍 Destino: {str(p['MUNICIPIO_ENTREGA']).strip().title()}/{p['UF_ENTREGA']}")
 
             etapas = ["Aberto", "Programado", "Pronto", "Faturado"]
             st.progress((etapas.index(p['STATUS_TEXTO']) + 1) / len(etapas))
