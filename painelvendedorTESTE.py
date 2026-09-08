@@ -1263,10 +1263,16 @@ def exibir_meus_pedidos():
 
     df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
     programados_set = set()
+    programados_prazo = {}
     if isinstance(df_programados, pd.DataFrame) and not df_programados.empty:
         if 'Número do Pedido' in df_programados.columns and 'Produto' in df_programados.columns:
             for _, r in df_programados.iterrows():
-                programados_set.add((str(r['Número do Pedido']).strip(), _normalizar_produto(r['Produto'])))
+                chave = (str(r['Número do Pedido']).strip(), _normalizar_produto(r['Produto']))
+                programados_set.add(chave)
+                if 'Prazo' in df_programados.columns:
+                    prazo_dt = pd.to_datetime(r['Prazo'], dayfirst=True, errors='coerce')
+                    if pd.notna(prazo_dt):
+                        programados_prazo[chave] = prazo_dt
 
     def _status_item(row):
         lote = str(row.get('LOTE', '')).strip()
@@ -1328,23 +1334,26 @@ def exibir_meus_pedidos():
 
         for _, item in itens_abertos.iterrows():
             status_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[item['STATUS_ORDEM']]
-            eta = _calcular_eta(item.get('ENTREGA_DT'), filial, municipio_entrega, uf_entrega)
-            if eta is not None: etas.append(eta)
+            chave_item = (pedido, _normalizar_produto(item.get('PRODUTO', '')))
+            prazo_maquina = programados_prazo.get(chave_item, item.get('ENTREGA_DT'))
+            previsao_chegada = "Aguardando Ficar Pronto" if item['STATUS_ORDEM'] < 2 else "Aguardando Logística"
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
                 'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
-                'STATUS_ITEM': status_txt, 'DATA_REF': item.get('ENTREGA_DT'), 'PREVISAO_CHEGADA': eta,
+                'STATUS_ITEM': status_txt, 'DATA_REF': prazo_maquina, 'PREVISAO_CHEGADA': previsao_chegada,
             })
 
         for _, item in itens_fat.iterrows():
+            chave_item = (pedido, _normalizar_produto(item.get('PRODUTO', '')))
+            prazo_maquina = programados_prazo.get(chave_item)
             eta = _calcular_eta(item.get('EMISSAO_DT'), filial, municipio_entrega, uf_entrega)
             if eta is not None: etas.append(eta)
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
                 'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
-                'STATUS_ITEM': "Faturado", 'DATA_REF': item.get('EMISSAO_DT'), 'PREVISAO_CHEGADA': eta,
+                'STATUS_ITEM': "Faturado", 'DATA_REF': prazo_maquina, 'PREVISAO_CHEGADA': eta,
             })
 
         if itens_abertos.empty:
@@ -1397,12 +1406,7 @@ def exibir_meus_pedidos():
 
     for p in pedidos_ordenados[:qtd_exibida]:
         with st.container(border=True):
-            col_a, col_b = st.columns([3, 1])
-            with col_a:
-                st.markdown(f"**Pedido {p['PEDIDO']}** — {str(p['CLIENTE']).strip().title()}")
-            with col_b:
-                cor_status = {"Aberto": "🔴", "Programado": "🟡", "Pronto": "🟢", "Faturado": "🔵"}
-                st.markdown(f"{cor_status.get(p['STATUS_TEXTO'], '⚪')} {p['STATUS_TEXTO']}")
+            st.markdown(f"**Pedido {p['PEDIDO']}** — {str(p['CLIENTE']).strip().title()}")
 
             if p['TRIANGULAR']:
                 st.caption(f"🔀 Entrega em: {str(p['CLIENTE_ENTREGA']).strip().title()} — {str(p['MUNICIPIO_ENTREGA']).strip().title()}/{p['UF_ENTREGA']}")
@@ -1412,26 +1416,20 @@ def exibir_meus_pedidos():
             if p['STATUS_TEXTO'] != "Faturado" and p['TEM_ITENS_FATURADOS']:
                 st.caption("✅ Parte deste pedido já foi faturada — veja o detalhe em 'Ver itens'.")
 
-            etapas = ["Aberto", "Programado", "Pronto", "Faturado"]
-            st.progress((etapas.index(p['STATUS_TEXTO']) + 1) / len(etapas))
-
-            col_c, col_d = st.columns(2)
-            col_c.write(f"**Peso:** {formatar_peso_brasileiro(p['PESO_TOTAL'])} ton")
-            if p['PRAZO_DT'] is not None and pd.notna(p['PRAZO_DT']):
-                col_d.write(f"**Previsão de chegada:** {p['PRAZO_DT'].strftime('%d/%m/%Y')}")
-            else:
-                col_d.write("**Previsão de chegada:** —")
+            st.write(f"**Peso:** {formatar_peso_brasileiro(p['PESO_TOTAL'])} ton")
 
             def _timeline_html(status_txt):
-                etapas = ["Aberto", "Programado", "Pronto", "Faturado"]
-                idx_atual = etapas.index(status_txt)
+                etapas_internas = ["Aberto", "Programado", "Pronto", "Faturado"]
+                etapas_display = ["Não Programado", "Programado", "Pronto", "Faturado"]
+                idx_atual = etapas_internas.index(status_txt)
                 cores = {"Aberto": "#ef4444", "Programado": "#f59e0b", "Pronto": "#22c55e", "Faturado": "#3b82f6"}
                 partes = []
-                for i, et in enumerate(etapas):
+                for i, chave in enumerate(etapas_internas):
+                    et = etapas_display[i]
                     if i < idx_atual:
                         partes.append(f"<span style='color:#9ca3af'>✓ {et}</span>")
                     elif i == idx_atual:
-                        partes.append(f"<span style='color:{cores[et]}; font-weight:600'>● {et}</span>")
+                        partes.append(f"<span style='color:{cores[chave]}; font-weight:600'>● {et}</span>")
                     else:
                         partes.append(f"<span style='color:#d1d5db'>○ {et}</span>")
                 return " → ".join(partes)
@@ -1439,8 +1437,15 @@ def exibir_meus_pedidos():
             with st.expander("Ver itens"):
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
-                    data_ref_str = item['DATA_REF'].strftime('%d/%m/%Y') if pd.notna(item['DATA_REF']) else '-'
-                    eta_str = item['PREVISAO_CHEGADA'].strftime('%d/%m/%Y') if pd.notna(item['PREVISAO_CHEGADA']) else '-'
+                    data_ref_val = item['DATA_REF']
+                    data_ref_str = data_ref_val.strftime('%d/%m/%Y') if isinstance(data_ref_val, pd.Timestamp) and pd.notna(data_ref_val) else '-'
+                    eta_val = item['PREVISAO_CHEGADA']
+                    if isinstance(eta_val, pd.Timestamp) and pd.notna(eta_val):
+                        eta_str = eta_val.strftime('%d/%m/%Y')
+                    elif isinstance(eta_val, str):
+                        eta_str = eta_val
+                    else:
+                        eta_str = '-'
                     lote_str = str(item.get('LOTE', '') or '-')
                     lote_mp_str = str(item.get('LOTE_MP', '') or '-')
                     celulas = [
@@ -1461,8 +1466,8 @@ def exibir_meus_pedidos():
                     "<th style='padding:6px'>Lote</th>"
                     "<th style='padding:6px'>Lote MP</th>"
                     "<th style='padding:6px'>Linha do tempo</th>"
-                    "<th style='padding:6px'>Data ref.</th>"
-                    "<th style='padding:6px'>Previsão chegada</th>"
+                    "<th style='padding:6px'>Prev. Ficar Pronto</th>"
+                    "<th style='padding:6px'>Previsão de Chegada</th>"
                     "</tr>"
                 )
                 tabela_html = f"<table style='width:100%; border-collapse:collapse; font-size:13px'>{cabecalho}{linhas_html}</table>"
