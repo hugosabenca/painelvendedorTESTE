@@ -1443,26 +1443,29 @@ def exibir_meus_pedidos():
                     eta_str = item['PREVISAO_CHEGADA'].strftime('%d/%m/%Y') if pd.notna(item['PREVISAO_CHEGADA']) else '-'
                     lote_str = str(item.get('LOTE', '') or '-')
                     lote_mp_str = str(item.get('LOTE_MP', '') or '-')
-                    linhas_html += f"""
-                    <tr>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{item['PRODUTO']}</td>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb; text-align:right'>{item['TONS']}</td>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_str}</td>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_mp_str}</td>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb; font-size:12px; white-space:nowrap'>{_timeline_html(item['STATUS_ITEM'])}</td>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{data_ref_str}</td>
-                        <td style='padding:6px; border-bottom:1px solid #e5e7eb'>{eta_str}</td>
-                    </tr>"""
-                tabela_html = f"""
-                <table style='width:100%; border-collapse:collapse; font-size:13px'>
-                    <tr style='color:#6b7280; text-align:left'>
-                        <th style='padding:6px'>Produto</th><th style='padding:6px; text-align:right'>Tons</th>
-                        <th style='padding:6px'>Lote</th><th style='padding:6px'>Lote MP</th>
-                        <th style='padding:6px'>Linha do tempo</th><th style='padding:6px'>Data ref.</th><th style='padding:6px'>Previsão chegada</th>
-                    </tr>
-                    {linhas_html}
-                </table>
-                """
+                    celulas = [
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{item['PRODUTO']}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb; text-align:right'>{item['TONS']}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_str}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_mp_str}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb; font-size:12px; white-space:nowrap'>{_timeline_html(item['STATUS_ITEM'])}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{data_ref_str}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{eta_str}</td>",
+                    ]
+                    linhas_html += "<tr>" + "".join(celulas) + "</tr>"
+
+                cabecalho = (
+                    "<tr style='color:#6b7280; text-align:left'>"
+                    "<th style='padding:6px'>Produto</th>"
+                    "<th style='padding:6px; text-align:right'>Tons</th>"
+                    "<th style='padding:6px'>Lote</th>"
+                    "<th style='padding:6px'>Lote MP</th>"
+                    "<th style='padding:6px'>Linha do tempo</th>"
+                    "<th style='padding:6px'>Data ref.</th>"
+                    "<th style='padding:6px'>Previsão chegada</th>"
+                    "</tr>"
+                )
+                tabela_html = f"<table style='width:100%; border-collapse:collapse; font-size:13px'>{cabecalho}{linhas_html}</table>"
                 st.markdown(tabela_html, unsafe_allow_html=True)
 
     if qtd_exibida < total_filtrado:
