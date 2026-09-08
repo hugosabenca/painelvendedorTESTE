@@ -7,6 +7,7 @@ import pytz
 import altair as alt
 import time
 import math
+import unicodedata
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 import io
 
@@ -508,6 +509,16 @@ def carregar_dados_pedidos_faturados():
 @st.cache_data(ttl="30m", show_spinner=False)
 def carregar_cache_distancias_painel():
     df = ler_com_retry(URL_SISTEMA, "Cache_Distancias")
+    if df is None: return None
+    if not df.empty:
+        df = df.astype(str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
+    return pd.DataFrame()
+
+@st.cache_data(ttl="30m", show_spinner=False)
+def carregar_cache_ceps_painel():
+    df = ler_com_retry(URL_SISTEMA, "Cache_CEPs")
     if df is None: return None
     if not df.empty:
         df = df.astype(str)
@@ -1215,8 +1226,20 @@ def exibir_carteira_pedidos():
 def _normalizar_produto_mp(texto):
     return ' '.join(str(texto).upper().split())
 
+def _normalizar_texto_mp(texto):
+    if not texto:
+        return ""
+    texto = str(texto).strip().upper().replace('-', ' ')
+    texto = unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('ASCII')
+    return ' '.join(texto.split())
+
+def _normalizar_cep_mp(cep):
+    if not cep:
+        return ""
+    return ''.join(filter(str.isdigit, str(cep)))
+
 @st.cache_data(ttl="5m", show_spinner=False)
-def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_programados,
+def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_programados, df_ceps,
                                   tipo_usuario, nome_filtro, filtro_vendedor):
     df_carteira = df_carteira.copy()
 
@@ -1281,6 +1304,20 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             except Exception:
                 continue
 
+    cache_ceps = {}
+    if isinstance(df_ceps, pd.DataFrame) and not df_ceps.empty:
+        for _, r in df_ceps.iterrows():
+            try:
+                cache_ceps[_normalizar_cep_mp(r['CEP'])] = (str(r['MUNICIPIO']).upper(), str(r['UF']).upper())
+            except Exception:
+                continue
+
+    def _resolver_destino(cep_bruto, municipio_bruto, uf_bruto):
+        cep_norm = _normalizar_cep_mp(cep_bruto)
+        if cep_norm in cache_ceps:
+            return cache_ceps[cep_norm]
+        return _normalizar_texto_mp(municipio_bruto), str(uf_bruto).strip().upper()
+
     def _calcular_eta(data_ref, filial, municipio, uf):
         if data_ref is None or pd.isna(data_ref):
             return None
@@ -1303,8 +1340,10 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
 
         linha_ref = itens_abertos.iloc[0] if not itens_abertos.empty else itens_fat.iloc[0]
         filial = linha_ref.get('FILIAL', '')
-        municipio_entrega = linha_ref.get('MUNICIPIO_ENTREGA', linha_ref.get('MUNICIPIO', ''))
-        uf_entrega = linha_ref.get('UF_ENTREGA', linha_ref.get('UF', ''))
+        cep_entrega_bruto = linha_ref.get('CEP_ENTREGA', '')
+        municipio_bruto = linha_ref.get('MUNICIPIO_ENTREGA', linha_ref.get('MUNICIPIO', ''))
+        uf_bruto = linha_ref.get('UF_ENTREGA', linha_ref.get('UF', ''))
+        municipio_entrega, uf_entrega = _resolver_destino(cep_entrega_bruto, municipio_bruto, uf_bruto)
         cliente_entrega = linha_ref.get('CLIENTE_ENTREGA', linha_ref.get('CLIENTE', ''))
         cliente = linha_ref.get('CLIENTE', '')
         triangular = False
@@ -1368,6 +1407,7 @@ def exibir_meus_pedidos():
     df_faturados = obter_dados_persistentes("cache_pedidos_faturados", carregar_dados_pedidos_faturados)
     df_distancias = obter_dados_persistentes("cache_distancias_mp", carregar_cache_distancias_painel)
     df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
+    df_ceps = obter_dados_persistentes("cache_ceps_mp", carregar_cache_ceps_painel)
 
     if df_carteira is None or df_carteira.empty:
         st.info("Não foi possível carregar os dados da Carteira no momento.")
@@ -1379,7 +1419,7 @@ def exibir_meus_pedidos():
         filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
 
     pedidos_final = _montar_pedidos_meus_pedidos(
-        df_carteira, df_faturados, df_distancias, df_programados,
+        df_carteira, df_faturados, df_distancias, df_programados, df_ceps,
         tipo_usuario, nome_filtro, filtro_vendedor
     )
 
