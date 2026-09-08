@@ -1357,8 +1357,10 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             chave_item = (pedido, _normalizar_produto_mp(item.get('PRODUTO', '')))
             if status_txt == "Aberto":
                 prazo_maquina = "Aguardando Programar"
-            else:
+            elif status_txt == "Programado":
                 prazo_maquina = programados_prazo.get(chave_item, item.get('ENTREGA_DT'))
+            else:  # Pronto — já passou dessa etapa, a data de "ficar pronto" não é mais relevante
+                prazo_maquina = None
             previsao_chegada = "Aguardando Ficar Pronto" if item['STATUS_ORDEM'] < 2 else "Aguardando Logística"
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
