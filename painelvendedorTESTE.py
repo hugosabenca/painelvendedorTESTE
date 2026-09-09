@@ -507,25 +507,31 @@ def carregar_dados_pedidos_faturados():
         return df
     return pd.DataFrame()
 
-@st.cache_data(ttl="30m", show_spinner=False)
-def carregar_cache_distancias_painel():
-    df = ler_com_retry(URL_SISTEMA, "Cache_Distancias")
-    if df is None: return None
-    if not df.empty:
-        df = df.astype(str)
-        df.columns = df.columns.str.strip().str.upper()
-        return df
+def _carregar_aba_com_protecao_vazio(nome_aba, tentativas=3, espera_segundos=3):
+    """
+    Lê uma aba do Sheets com proteção contra 'flagra vazio' (o robô limpa e reescreve
+    a aba periodicamente; se lermos bem nesse instante, pode vir vazio por engano).
+    Tenta de novo antes de aceitar um resultado vazio como válido.
+    """
+    for tentativa in range(tentativas):
+        df = ler_com_retry(URL_SISTEMA, nome_aba)
+        if df is None:
+            return None
+        if not df.empty:
+            df = df.astype(str)
+            df.columns = df.columns.str.strip().str.upper()
+            return df
+        if tentativa < tentativas - 1:
+            time.sleep(espera_segundos)
     return pd.DataFrame()
 
 @st.cache_data(ttl="30m", show_spinner=False)
+def carregar_cache_distancias_painel():
+    return _carregar_aba_com_protecao_vazio("Cache_Distancias")
+
+@st.cache_data(ttl="30m", show_spinner=False)
 def carregar_cache_ceps_painel():
-    df = ler_com_retry(URL_SISTEMA, "Cache_CEPs")
-    if df is None: return None
-    if not df.empty:
-        df = df.astype(str)
-        df.columns = df.columns.str.strip().str.upper()
-        return df
-    return pd.DataFrame()
+    return _carregar_aba_com_protecao_vazio("Cache_CEPs")
 
 
 @st.cache_data(ttl="5m", show_spinner=False)
@@ -1310,8 +1316,6 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             except Exception:
                 continue
 
-    similares_jau = [repr(chave) for chave in cache_dist.keys() if 'JAU' in chave[1]]
-    st.session_state['DEBUG_CACHE_DIST_INFO'] = {'total': len(cache_dist), 'similares': similares_jau}
 
     cache_ceps = {}
     if isinstance(df_ceps, pd.DataFrame) and not df_ceps.empty:
@@ -1539,10 +1543,6 @@ def exibir_meus_pedidos():
                 return f"<div style='display:flex; align-items:flex-start; width:100%'>{''.join(partes)}</div>"
 
             with st.expander("Ver itens"):
-                if st.session_state.get('usuario_tipo', '').lower() == 'admin':
-                    st.caption(f"🔧 DEBUG: CEP bruto = {p.get('DEBUG_CEP_BRUTO')} | chave buscada (repr) = {repr(p.get('DEBUG_CHAVE_CACHE'))} | achou distância? {p.get('DEBUG_ACHOU_DISTANCIA')}")
-                    if 'DEBUG_CACHE_DIST_INFO' in st.session_state:
-                        st.caption(f"🔧 DEBUG: total de chaves no cache = {st.session_state['DEBUG_CACHE_DIST_INFO']['total']} | chaves parecidas com JAU = {st.session_state['DEBUG_CACHE_DIST_INFO']['similares']}")
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
                     data_ref_val = item['DATA_REF']
