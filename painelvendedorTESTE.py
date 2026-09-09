@@ -1408,6 +1408,7 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             status_geral_ordem = itens_abertos['STATUS_ORDEM'].min()
             status_geral_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[status_geral_ordem]
 
+        chave_cache_debug = (str(filial).upper(), municipio_entrega, uf_entrega)
         pedidos_final.append({
             'PEDIDO': pedido, 'FILIAL': filial, 'CLIENTE': cliente, 'TRIANGULAR': triangular,
             'CLIENTE_ENTREGA': cliente_entrega, 'MUNICIPIO_ENTREGA': municipio_entrega, 'UF_ENTREGA': uf_entrega,
@@ -1416,6 +1417,9 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             'ITENS': pd.DataFrame(linhas_itens),
             'PRAZO_DT': max(etas) if etas else None,
             'TEM_ITENS_FATURADOS': not itens_fat.empty,
+            'DEBUG_CEP_BRUTO': cep_entrega_bruto,
+            'DEBUG_CHAVE_CACHE': chave_cache_debug,
+            'DEBUG_ACHOU_DISTANCIA': chave_cache_debug in cache_dist,
         })
 
     return pedidos_final
@@ -1532,6 +1536,8 @@ def exibir_meus_pedidos():
                 return f"<div style='display:flex; align-items:flex-start; width:100%'>{''.join(partes)}</div>"
 
             with st.expander("Ver itens"):
+                if st.session_state.get('usuario_tipo', '').lower() == 'admin':
+                    st.caption(f"🔧 DEBUG: CEP bruto = {p.get('DEBUG_CEP_BRUTO')} | chave buscada no cache = {p.get('DEBUG_CHAVE_CACHE')} | achou distância? {p.get('DEBUG_ACHOU_DISTANCIA')}")
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
                     data_ref_val = item['DATA_REF']
