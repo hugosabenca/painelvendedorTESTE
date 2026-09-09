@@ -2431,6 +2431,20 @@ if not st.session_state['logado']:
         # TELA DE LOGIN: ALINHADA À ESQUERDA E COMPACTA
         # =================================================================
         
+        # Força o botão "Acessar" (tipo primary do Streamlit, vermelho por padrão) a usar o azul da marca
+        st.markdown("""
+        <style>
+            button[kind="primary"] {
+                background-color: #1B6FE0 !important;
+                border-color: #1B6FE0 !important;
+            }
+            button[kind="primary"]:hover {
+                background-color: #1B6FE0dd !important;
+                border-color: #1B6FE0dd !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
         # Cria duas colunas: A primeira estreita para o login, a segunda vazia para preencher o resto
         col_login, col_vazia = st.columns([1, 2]) 
 
