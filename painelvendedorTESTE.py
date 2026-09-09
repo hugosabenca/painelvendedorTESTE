@@ -1484,13 +1484,13 @@ def exibir_meus_pedidos():
                         texto = ""
                     elif i == idx_atual:
                         circulo = f"<div style='width:24px; height:24px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:13px; margin:0 auto'>{icones[i]}</div>"
-                        alinhamento_texto = "left" if i == 0 else "center"
-                        texto = f"<div style='font-size:11px; color:{cores[i]}; font-weight:600; margin-top:3px; white-space:nowrap; text-align:{alinhamento_texto}'>{labels[i]}</div>"
+                        texto = f"<div style='font-size:11px; color:{cores[i]}; font-weight:600; margin-top:3px; white-space:nowrap; text-align:center'>{labels[i]}</div>"
                     else:
                         circulo = "<div style='width:20px; height:20px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb; margin:0 auto'></div>"
                         texto = ""
 
-                    partes.append(f"<div style='flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center'>{circulo}{texto}</div>")
+                    alinhamento_bloco = "flex-start" if i == 0 else "center"
+                    partes.append(f"<div style='flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:{alinhamento_bloco}'>{circulo}{texto}</div>")
 
                     if i < 3:
                         linha_cor = "#d1d5db" if i >= idx_atual else "#9ca3af"
