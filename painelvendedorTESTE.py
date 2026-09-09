@@ -1489,11 +1489,11 @@ def exibir_meus_pedidos():
                         circulo = "<div style='width:22px; height:22px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb; margin:0 auto'></div>"
                         texto = ""
 
-                    partes.append(f"<div style='display:flex; flex-direction:column; align-items:center'>{circulo}{texto}</div>")
+                    partes.append(f"<div style='flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; position:relative; overflow:visible'>{circulo}{texto}</div>")
 
                     if i < 3:
                         linha_cor = "#d1d5db" if i >= idx_atual else "#9ca3af"
-                        partes.append(f"<div style='flex:1; height:3px; background:{linha_cor}; margin-top:12px'></div>")
+                        partes.append(f"<div style='flex:0 0 20px; height:3px; background:{linha_cor}; margin-top:12px'></div>")
 
                 return f"<div style='display:flex; align-items:flex-start; width:100%'>{''.join(partes)}</div>"
 
