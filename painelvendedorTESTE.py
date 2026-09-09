@@ -1484,7 +1484,7 @@ def exibir_meus_pedidos():
                         texto = ""
                     elif i == idx_atual:
                         circulo = f"<div style='width:24px; height:24px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:13px; margin:0 auto'>{icones[i]}</div>"
-                        texto = f"<div style='font-size:10px; line-height:1.2; color:{cores[i]}; font-weight:600; margin-top:3px; white-space:normal; text-align:center; word-break:break-word'>{labels[i]}</div>"
+                        texto = f"<div style='font-size:11px; color:{cores[i]}; font-weight:600; margin-top:3px; white-space:nowrap; text-align:center'>{labels[i]}</div>"
                     else:
                         circulo = "<div style='width:20px; height:20px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb; margin:0 auto'></div>"
                         texto = ""
@@ -1529,13 +1529,13 @@ def exibir_meus_pedidos():
 
                 cabecalho = (
                     "<tr style='color:#6b7280; text-align:left'>"
-                    "<th style='padding:6px'>Produto</th>"
-                    "<th style='padding:6px; text-align:right'>Tons</th>"
-                    "<th style='padding:6px'>Lote</th>"
-                    "<th style='padding:6px'>Lote MP</th>"
-                    "<th style='padding:6px; width:180px'>Linha do tempo</th>"
-                    "<th style='padding:6px'>Prev. Ficar Pronto</th>"
-                    "<th style='padding:6px'>Previsão de Chegada</th>"
+                    "<th style='padding:6px; width:18%'>Produto</th>"
+                    "<th style='padding:6px; text-align:right; width:6%'>Tons</th>"
+                    "<th style='padding:6px; width:9%'>Lote</th>"
+                    "<th style='padding:6px; width:9%'>Lote MP</th>"
+                    "<th style='padding:6px; width:32%'>Linha do tempo</th>"
+                    "<th style='padding:6px; width:13%'>Prev. Ficar Pronto</th>"
+                    "<th style='padding:6px; width:13%'>Previsão de Chegada</th>"
                     "</tr>"
                 )
                 tabela_html = f"<table style='width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px'>{cabecalho}{linhas_html}</table>"
