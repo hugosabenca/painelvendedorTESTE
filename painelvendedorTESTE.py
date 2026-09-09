@@ -1310,6 +1310,9 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             except Exception:
                 continue
 
+    similares_jau = [repr(chave) for chave in cache_dist.keys() if 'JAU' in chave[1]]
+    st.session_state['DEBUG_CACHE_DIST_INFO'] = {'total': len(cache_dist), 'similares': similares_jau}
+
     cache_ceps = {}
     if isinstance(df_ceps, pd.DataFrame) and not df_ceps.empty:
         for _, r in df_ceps.iterrows():
@@ -1537,7 +1540,9 @@ def exibir_meus_pedidos():
 
             with st.expander("Ver itens"):
                 if st.session_state.get('usuario_tipo', '').lower() == 'admin':
-                    st.caption(f"🔧 DEBUG: CEP bruto = {p.get('DEBUG_CEP_BRUTO')} | chave buscada no cache = {p.get('DEBUG_CHAVE_CACHE')} | achou distância? {p.get('DEBUG_ACHOU_DISTANCIA')}")
+                    st.caption(f"🔧 DEBUG: CEP bruto = {p.get('DEBUG_CEP_BRUTO')} | chave buscada (repr) = {repr(p.get('DEBUG_CHAVE_CACHE'))} | achou distância? {p.get('DEBUG_ACHOU_DISTANCIA')}")
+                    if 'DEBUG_CACHE_DIST_INFO' in st.session_state:
+                        st.caption(f"🔧 DEBUG: total de chaves no cache = {st.session_state['DEBUG_CACHE_DIST_INFO']['total']} | chaves parecidas com JAU = {st.session_state['DEBUG_CACHE_DIST_INFO']['similares']}")
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
                     data_ref_val = item['DATA_REF']
