@@ -1488,6 +1488,43 @@ def _carregar_dados_meus_pedidos_paralelo():
 
     return resultados
 
+def _traduzir_pedidos_transferencia_dox(df_carteira):
+    """
+    Pedidos de transferência entre filiais aparecem com CLIENTE = 'DOX BRASIL...'
+    e sem vendedor/gerente na filial de origem — o dado real está na 'perna'
+    desse mesmo pedido registrada na filial SAO PAULO. Traduz esses campos
+    igual já é feito na aba Carteira geral.
+    """
+    df_c = df_carteira.copy()
+    col_chave = 'PED/PROP SF'
+    if 'PED/PROP SF2' in df_c.columns:
+        col_chave = 'PED/PROP SF2'
+    if col_chave not in df_c.columns or 'FILIAL' not in df_c.columns:
+        return df_c
+
+    df_sp = df_c[df_c['FILIAL'] == 'SAO PAULO'].copy()
+    if df_sp.empty:
+        return df_c
+
+    df_sp = df_sp[df_sp[col_chave].astype(str).str.strip() != '']
+    if df_sp.empty:
+        return df_c
+
+    df_sp['CHAVE_SP'] = df_sp[col_chave].astype(str).str.strip().str.lstrip('0')
+    df_sp_unique = df_sp.drop_duplicates(subset=['CHAVE_SP']).set_index('CHAVE_SP')[['CLIENTE', 'VENDEDOR', 'GERENTE']]
+
+    df_c['CLIENTE_UPPER'] = df_c['CLIENTE'].astype(str).str.upper()
+    mask_dox = df_c['CLIENTE_UPPER'].str.contains("DOX BRASIL", na=False)
+    ped_sf_keys = df_c.loc[mask_dox, col_chave].astype(str).str.strip().str.lstrip('0')
+
+    for col in ['CLIENTE', 'VENDEDOR', 'GERENTE']:
+        if col in df_sp_unique.columns:
+            mapped_values = ped_sf_keys.map(df_sp_unique[col])
+            df_c.loc[mask_dox, col] = mapped_values.fillna(df_c.loc[mask_dox, col])
+
+    return df_c.drop(columns=['CLIENTE_UPPER'])
+
+
 def exibir_meus_pedidos():
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     nome_filtro = st.session_state['usuario_filtro']
@@ -1503,7 +1540,13 @@ def exibir_meus_pedidos():
         st.info("Não foi possível carregar os dados da Carteira no momento.")
         return
 
-    # Hoje só Pinheiral e SJ Bicas têm produção — as demais filiais são centros de distribuição
+    # Traduz pedidos de transferência (CLIENTE = 'DOX BRASIL...') usando a perna
+    # do pedido registrada em SAO PAULO — precisa acontecer ANTES de filtrar as filiais,
+    # porque SAO PAULO é justamente a filial que vai ser removida a seguir.
+    df_carteira = _traduzir_pedidos_transferencia_dox(df_carteira)
+
+    # Hoje só Pinheiral e SJ Bicas têm produção — as demais filiais (incluindo SAO PAULO,
+    # que já cumpriu seu papel na tradução acima) são removidas agora.
     FILIAIS_COM_PRODUCAO = ["PINHEIRAL", "SJ BICAS"]
     df_carteira = df_carteira[df_carteira['FILIAL'].astype(str).str.upper().isin(FILIAIS_COM_PRODUCAO)].copy()
     if isinstance(df_faturados, pd.DataFrame) and not df_faturados.empty and 'FILIAL' in df_faturados.columns:
@@ -1607,16 +1650,6 @@ def exibir_meus_pedidos():
                 return f"<div style='display:flex; align-items:flex-start; width:100%'>{''.join(partes)}</div>"
 
             with st.expander("Ver itens"):
-                if st.session_state.get('usuario_tipo', '').lower() == 'admin':
-                    for _, item_debug in p['ITENS'].iterrows():
-                        if item_debug['STATUS_ITEM'] == "Aberto":
-                            st.caption(f"🔧 DEBUG produto Carteira (normalizado) = {repr(item_debug.get('DEBUG_PRODUTO_NORM'))}")
-                            produtos_prog = item_debug.get('DEBUG_PRODUTOS_PROGRAMADOS', [])
-                            if produtos_prog:
-                                for original, normalizado in produtos_prog:
-                                    st.caption(f"🔧 DEBUG produto Itens Programados: original={repr(original)} | normalizado={repr(normalizado)}")
-                            else:
-                                st.caption("🔧 DEBUG: esse pedido não aparece em NENHUMA linha da aba Itens Programados.")
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
                     data_ref_val = item['DATA_REF']
