@@ -1288,11 +1288,15 @@ def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _d
 
     programados_set = set()
     programados_prazo = {}
+    programados_por_pedido_debug = {}  # pedido -> lista de (produto original, produto normalizado)
     if isinstance(df_programados, pd.DataFrame) and not df_programados.empty:
         if 'Número do Pedido' in df_programados.columns and 'Produto' in df_programados.columns:
             for _, r in df_programados.iterrows():
-                chave = (str(r['Número do Pedido']).strip(), _normalizar_produto_mp(r['Produto']))
+                pedido_num = str(r['Número do Pedido']).strip()
+                produto_norm = _normalizar_produto_mp(r['Produto'])
+                chave = (pedido_num, produto_norm)
                 programados_set.add(chave)
+                programados_por_pedido_debug.setdefault(pedido_num, []).append((r['Produto'], produto_norm))
                 if 'Prazo' in df_programados.columns:
                     prazo_dt = pd.to_datetime(r['Prazo'], dayfirst=True, errors='coerce')
                     if pd.notna(prazo_dt):
@@ -1404,11 +1408,14 @@ def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _d
                 previsao_chegada = "Aguardando Logística"
 
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
+            debug_produtos_pedido = programados_por_pedido_debug.get(pedido, [])
             linhas_itens.append({
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
                 'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
                 'STATUS_ITEM': status_txt, 'DATA_REF': prazo_maquina, 'PREVISAO_CHEGADA': previsao_chegada,
                 'INCONSISTENTE': inconsistente,
+                'DEBUG_PRODUTO_NORM': _normalizar_produto_mp(item.get('PRODUTO', '')),
+                'DEBUG_PRODUTOS_PROGRAMADOS': debug_produtos_pedido,
             })
 
         for _, item in itens_fat.iterrows():
@@ -1600,6 +1607,16 @@ def exibir_meus_pedidos():
                 return f"<div style='display:flex; align-items:flex-start; width:100%'>{''.join(partes)}</div>"
 
             with st.expander("Ver itens"):
+                if st.session_state.get('usuario_tipo', '').lower() == 'admin':
+                    for _, item_debug in p['ITENS'].iterrows():
+                        if item_debug['STATUS_ITEM'] == "Aberto":
+                            st.caption(f"🔧 DEBUG produto Carteira (normalizado) = {repr(item_debug.get('DEBUG_PRODUTO_NORM'))}")
+                            produtos_prog = item_debug.get('DEBUG_PRODUTOS_PROGRAMADOS', [])
+                            if produtos_prog:
+                                for original, normalizado in produtos_prog:
+                                    st.caption(f"🔧 DEBUG produto Itens Programados: original={repr(original)} | normalizado={repr(normalizado)}")
+                            else:
+                                st.caption("🔧 DEBUG: esse pedido não aparece em NENHUMA linha da aba Itens Programados.")
                 linhas_html = ""
                 for _, item in p['ITENS'].iterrows():
                     data_ref_val = item['DATA_REF']
