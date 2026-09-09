@@ -8,6 +8,7 @@ import altair as alt
 import time
 import math
 import unicodedata
+import holidays
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 import io
 
@@ -1324,6 +1325,7 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
         return _normalizar_texto_mp(municipio_bruto), str(uf_bruto).strip().upper()
 
     DIAS_FOLGA_SEGURANCA = 1  # margem extra pra imprevistos (fila de descarga, feriado, etc.)
+    DIAS_TOLERANCIA_FATURADO = 5  # depois desse prazo da previsão de chegada, o pedido some da lista
 
     def _calcular_eta(data_ref, filial, municipio, uf):
         if data_ref is None or pd.isna(data_ref):
@@ -1332,7 +1334,19 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
         if tempo_horas is None:
             return None
         dias_viagem = 0 if tempo_horas <= 1 else max(1, math.ceil(tempo_horas / 10))
-        return data_ref.normalize() + timedelta(days=dias_viagem + DIAS_FOLGA_SEGURANCA)
+        data_calculada = data_ref.normalize() + timedelta(days=dias_viagem + DIAS_FOLGA_SEGURANCA)
+
+        # Se cair em fim de semana ou feriado (nacional/estadual do destino), empurra pro próximo dia útil
+        uf_valida = str(uf).strip().upper()
+        try:
+            feriados_uf = holidays.Brazil(state=uf_valida, years=range(data_calculada.year, data_calculada.year + 2))
+        except Exception:
+            feriados_uf = holidays.Brazil(years=range(data_calculada.year, data_calculada.year + 2))
+
+        while data_calculada.weekday() >= 5 or data_calculada.date() in feriados_uf:
+            data_calculada += timedelta(days=1)
+
+        return data_calculada
 
     todos_numeros_pedido = set(df_carteira_f['PEDIDO'].astype(str))
     if not df_fat_f.empty:
@@ -1388,7 +1402,7 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
         if itens_abertos.empty:
             status_geral_ordem, status_geral_txt = 3, "Faturado"
             eta_maxima = max(etas) if etas else None
-            if eta_maxima is not None and (hoje_naive - eta_maxima).days > 7:
+            if eta_maxima is not None and (hoje_naive - eta_maxima).days > DIAS_TOLERANCIA_FATURADO:
                 continue
         else:
             status_geral_ordem = itens_abertos['STATUS_ORDEM'].min()
@@ -1453,16 +1467,13 @@ def exibir_meus_pedidos():
         st.info("Nenhum pedido encontrado para os filtros atuais.")
         return
 
-    hoje_naive = datetime.now(FUSO_BR).replace(tzinfo=None)
     nao_faturados = [p for p in pedidos_final if p['STATUS_TEXTO'] != "Faturado"]
     total_abertos = len(nao_faturados)
     volume_total = sum(p['PESO_TOTAL'] for p in nao_faturados)
-    atrasados = sum(1 for p in nao_faturados if p['PRAZO_DT'] is not None and p['PRAZO_DT'] < hoje_naive)
 
-    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1, kpi2 = st.columns(2)
     kpi1.metric("Pedidos em Aberto", total_abertos)
     kpi2.metric("Volume Total (Tons)", formatar_peso_brasileiro(volume_total))
-    kpi3.metric("Previsão Vencida", atrasados)
     st.divider()
 
     texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
