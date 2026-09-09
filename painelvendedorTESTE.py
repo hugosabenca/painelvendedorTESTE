@@ -2469,11 +2469,11 @@ else:
         
         if st.session_state['usuario_tipo'].lower() == "admin":
             # Adicionei "📂 Carteira" no início (a0)
-            a0, a1, aMP, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
+            aMP, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 = st.tabs(["🎯 Meus Pedidos", "📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📝 Acessos", "📑 Certificados", "🧾 Notas Fiscais", "🔍 Logs", "📊 Faturamento", "🏭 Produção", "🔧 Manutenção"])
             
+            with aMP: exibir_meus_pedidos()
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
-            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_credito()
             with a3: exibir_aba_estoque()
             with a4: exibir_aba_fotos(True)
@@ -2486,10 +2486,10 @@ else:
             with a11: exibir_aba_manutencao() 
             
         elif st.session_state['usuario_tipo'].lower() == "master":
-            a0, a1, aMP, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+            aMP, a0, a1, a2, a3, a4, a5, a6, a7, a8 = st.tabs(["🎯 Meus Pedidos", "📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais", "📊 Faturamento", "🏭 Produção"])
+            with aMP: exibir_meus_pedidos()
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
-            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_credito()
             with a3: exibir_aba_estoque() 
             with a4: exibir_aba_fotos(False) 
@@ -2499,10 +2499,10 @@ else:
             with a8: exibir_aba_producao()
 
         elif st.session_state['usuario_tipo'].lower() in ["logística", "logistica", "pcp"]:
-            a0, a1, aMP, a2, a3, a4, a5 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            aMP, a0, a1, a2, a3, a4, a5 = st.tabs(["🎯 Meus Pedidos", "📂 Carteira", "📂 Itens Programados", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            with aMP: exibir_meus_pedidos()
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
-            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_estoque()
             with a3: exibir_aba_fotos(True) 
             with a4: exibir_aba_certificados(True) 
@@ -2520,10 +2520,10 @@ else:
             
         else:
             # Vendedores e Gerentes Padrão
-            a0, a1, aMP, a2, a3, a4, a5, a6 = st.tabs(["📂 Carteira", "📂 Itens Programados", "🎯 Meus Pedidos", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            aMP, a0, a1, a2, a3, a4, a5, a6 = st.tabs(["🎯 Meus Pedidos", "📂 Carteira", "📂 Itens Programados", "💰 Crédito", "📦 Estoque", "📷 Fotos RDQ", "📑 Certificados", "🧾 Notas Fiscais"])
+            with aMP: exibir_meus_pedidos()
             with a0: exibir_aba_carteira_geral()
             with a1: exibir_carteira_pedidos()
-            with aMP: exibir_meus_pedidos()
             with a2: exibir_aba_credito()
             with a3: exibir_aba_estoque() 
             with a4: exibir_aba_fotos(False) 
