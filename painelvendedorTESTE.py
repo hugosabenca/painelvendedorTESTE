@@ -1542,14 +1542,14 @@ def exibir_meus_pedidos():
         texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
     with col_cliente:
         clientes_disponiveis = sorted(set(str(p['CLIENTE']).strip().title() for p in pedidos_final))
-        clientes_selecionados = st.multiselect("Filtrar por Cliente", clientes_disponiveis, key="mp_filtro_cliente")
+        cliente_selecionado = st.selectbox("Filtrar por Cliente", ["Todos"] + clientes_disponiveis, key="mp_filtro_cliente")
 
     pedidos_ordenados = sorted(pedidos_final, key=lambda x: x['STATUS_ORDEM'])
     if texto_busca:
         alvo_busca = texto_busca.lower()
         pedidos_ordenados = [p for p in pedidos_ordenados if alvo_busca in f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()]
-    if clientes_selecionados:
-        pedidos_ordenados = [p for p in pedidos_ordenados if str(p['CLIENTE']).strip().title() in clientes_selecionados]
+    if cliente_selecionado != "Todos":
+        pedidos_ordenados = [p for p in pedidos_ordenados if str(p['CLIENTE']).strip().title() == cliente_selecionado]
 
     if 'mp_qtd_exibida' not in st.session_state:
         st.session_state['mp_qtd_exibida'] = 25
