@@ -1537,12 +1537,19 @@ def exibir_meus_pedidos():
     kpi2.metric("Volume Total (Tons)", formatar_peso_brasileiro(volume_total))
     st.divider()
 
-    texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
+    col_busca, col_cliente = st.columns([2, 1])
+    with col_busca:
+        texto_busca = st.text_input("🔍 Filtro (Cliente, Pedido...):", key="mp_busca")
+    with col_cliente:
+        clientes_disponiveis = sorted(set(str(p['CLIENTE']).strip().title() for p in pedidos_final))
+        clientes_selecionados = st.multiselect("Filtrar por Cliente", clientes_disponiveis, key="mp_filtro_cliente")
 
     pedidos_ordenados = sorted(pedidos_final, key=lambda x: x['STATUS_ORDEM'])
     if texto_busca:
         alvo_busca = texto_busca.lower()
         pedidos_ordenados = [p for p in pedidos_ordenados if alvo_busca in f"{p['PEDIDO']} {p['CLIENTE']} {p['CLIENTE_ENTREGA']}".lower()]
+    if clientes_selecionados:
+        pedidos_ordenados = [p for p in pedidos_ordenados if str(p['CLIENTE']).strip().title() in clientes_selecionados]
 
     if 'mp_qtd_exibida' not in st.session_state:
         st.session_state['mp_qtd_exibida'] = 25
