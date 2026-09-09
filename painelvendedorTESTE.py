@@ -525,11 +525,11 @@ def _carregar_aba_com_protecao_vazio(nome_aba, tentativas=3, espera_segundos=3):
             time.sleep(espera_segundos)
     return pd.DataFrame()
 
-@st.cache_data(ttl="30m", show_spinner=False)
+@st.cache_data(ttl="2h", show_spinner=False)
 def carregar_cache_distancias_painel():
     return _carregar_aba_com_protecao_vazio("Cache_Distancias")
 
-@st.cache_data(ttl="30m", show_spinner=False)
+@st.cache_data(ttl="2h", show_spinner=False)
 def carregar_cache_ceps_painel():
     return _carregar_aba_com_protecao_vazio("Cache_CEPs")
 
@@ -1246,8 +1246,11 @@ def _normalizar_cep_mp(cep):
     return ''.join(filter(str.isdigit, str(cep)))
 
 @st.cache_data(ttl="5m", show_spinner=False)
-def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_programados, df_ceps,
+def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _df_programados, _df_ceps,
                                   tipo_usuario, nome_filtro, filtro_vendedor, filtro_filial):
+    df_carteira, df_faturados, df_distancias, df_programados, df_ceps = (
+        _df_carteira, _df_faturados, _df_distancias, _df_programados, _df_ceps
+    )
     df_carteira = df_carteira.copy()
 
     if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
