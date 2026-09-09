@@ -9,6 +9,8 @@ import time
 import math
 import unicodedata
 import holidays
+import threading
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
 import io
 
@@ -1435,15 +1437,48 @@ def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _d
     return pedidos_final
 
 
+def _carregar_dados_meus_pedidos_paralelo():
+    """
+    Busca as 5 fontes de dados da aba Meus Pedidos ao mesmo tempo (em paralelo),
+    em vez de uma esperando a outra terminar. Se alguma falhar, obter_dados_persistentes
+    já cuida de usar o dado antigo guardado na memória — igual sempre fez.
+    """
+    ctx = get_script_run_ctx()
+    resultados = {}
+
+    tarefas = [
+        ("carteira", "cache_carteira_mp", carregar_dados_carteira),
+        ("faturados", "cache_pedidos_faturados", carregar_dados_pedidos_faturados),
+        ("distancias", "cache_distancias_mp", carregar_cache_distancias_painel),
+        ("programados", "cache_pedidos_mp", carregar_dados_pedidos),
+        ("ceps", "cache_ceps_mp", carregar_cache_ceps_painel),
+    ]
+
+    def _executar(nome, chave_sessao, funcao_carregamento):
+        resultados[nome] = obter_dados_persistentes(chave_sessao, funcao_carregamento)
+
+    threads = []
+    for nome, chave, funcao in tarefas:
+        t = threading.Thread(target=_executar, args=(nome, chave, funcao))
+        add_script_run_ctx(t, ctx)  # conecta essa tarefa paralela ao contexto da tela do Streamlit
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()  # espera todas terminarem antes de seguir
+
+    return resultados
+
 def exibir_meus_pedidos():
     tipo_usuario = st.session_state['usuario_tipo'].lower()
     nome_filtro = st.session_state['usuario_filtro']
 
-    df_carteira = obter_dados_persistentes("cache_carteira_mp", carregar_dados_carteira)
-    df_faturados = obter_dados_persistentes("cache_pedidos_faturados", carregar_dados_pedidos_faturados)
-    df_distancias = obter_dados_persistentes("cache_distancias_mp", carregar_cache_distancias_painel)
-    df_programados = obter_dados_persistentes("cache_pedidos_mp", carregar_dados_pedidos)
-    df_ceps = obter_dados_persistentes("cache_ceps_mp", carregar_cache_ceps_painel)
+    dados_carregados = _carregar_dados_meus_pedidos_paralelo()
+    df_carteira = dados_carregados["carteira"]
+    df_faturados = dados_carregados["faturados"]
+    df_distancias = dados_carregados["distancias"]
+    df_programados = dados_carregados["programados"]
+    df_ceps = dados_carregados["ceps"]
 
     if df_carteira is None or df_carteira.empty:
         st.info("Não foi possível carregar os dados da Carteira no momento.")
