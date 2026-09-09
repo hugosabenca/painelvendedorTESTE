@@ -10,3 +10,4 @@ streamlit-extras
 streamlit-lottie
 requests
 xlsxwriter
+holidays
