@@ -2434,13 +2434,17 @@ if not st.session_state['logado']:
         # Força o botão "Acessar" (tipo primary do Streamlit, vermelho por padrão) a usar o azul da marca
         st.markdown("""
         <style>
-            button[kind="primary"] {
+            button[kind="primary"],
+            button[data-testid="stBaseButton-primary"],
+            div[data-testid="stFormSubmitButton"] button[kind="primary"] {
                 background-color: #1B6FE0 !important;
                 border-color: #1B6FE0 !important;
             }
-            button[kind="primary"]:hover {
-                background-color: #1B6FE0dd !important;
-                border-color: #1B6FE0dd !important;
+            button[kind="primary"]:hover,
+            button[data-testid="stBaseButton-primary"]:hover,
+            div[data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
+                background-color: #1558B0 !important;
+                border-color: #1558B0 !important;
             }
         </style>
         """, unsafe_allow_html=True)
