@@ -1386,18 +1386,29 @@ def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _d
         for _, item in itens_abertos.iterrows():
             status_txt = {0: "Aberto", 1: "Programado", 2: "Pronto"}[item['STATUS_ORDEM']]
             chave_item = (pedido, _normalizar_produto_mp(item.get('PRODUTO', '')))
-            if status_txt == "Aberto":
+            lote_val = str(item.get('LOTE', '') or '').strip()
+            lote_mp_val = str(item.get('LOTE MP', '') or '').strip()
+            inconsistente = status_txt != "Pronto" and not lote_val and not lote_mp_val
+
+            if inconsistente:
+                prazo_maquina = "Verificar inconsistência com a Logística"
+                previsao_chegada = "Verificar inconsistência com a Logística"
+            elif status_txt == "Aberto":
                 prazo_maquina = "Aguardando Programar"
+                previsao_chegada = "Aguardando Ficar Pronto"
             elif status_txt == "Programado":
                 prazo_maquina = programados_prazo.get(chave_item, item.get('ENTREGA_DT'))
+                previsao_chegada = "Aguardando Ficar Pronto"
             else:  # Pronto — já passou dessa etapa, a data de "ficar pronto" não é mais relevante
                 prazo_maquina = None
-            previsao_chegada = "Aguardando Ficar Pronto" if item['STATUS_ORDEM'] < 2 else "Aguardando Logística"
+                previsao_chegada = "Aguardando Logística"
+
             if str(item.get('TRIANGULAR', 'N')) == 'S': triangular = True
             linhas_itens.append({
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
                 'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
                 'STATUS_ITEM': status_txt, 'DATA_REF': prazo_maquina, 'PREVISAO_CHEGADA': previsao_chegada,
+                'INCONSISTENTE': inconsistente,
             })
 
         for _, item in itens_fat.iterrows():
@@ -1409,6 +1420,7 @@ def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _d
                 'PRODUTO': item.get('PRODUTO', ''), 'TONS': item.get('TONS_NUM', 0),
                 'LOTE': item.get('LOTE', ''), 'LOTE_MP': item.get('LOTE MP', ''),
                 'STATUS_ITEM': "Faturado", 'DATA_REF': prazo_maquina, 'PREVISAO_CHEGADA': eta,
+                'INCONSISTENTE': False,
             })
 
         if itens_abertos.empty:
@@ -1599,12 +1611,18 @@ def exibir_meus_pedidos():
                         eta_str = '-'
                     lote_str = str(item.get('LOTE', '') or '-')
                     lote_mp_str = str(item.get('LOTE_MP', '') or '-')
+
+                    if item.get('INCONSISTENTE'):
+                        timeline_conteudo = "<div style='background:#fef3c7; color:#92400e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:600; white-space:nowrap'>⚠️ Sem Lote e Lote MP vinculados</div>"
+                    else:
+                        timeline_conteudo = _timeline_html(item['STATUS_ITEM'])
+
                     celulas = [
                         f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{item['PRODUTO']}</td>",
                         f"<td style='padding:6px; border-bottom:1px solid #e5e7eb; text-align:right'>{item['TONS']}</td>",
                         f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_str}</td>",
                         f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{lote_mp_str}</td>",
-                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb; font-size:12px; white-space:nowrap'>{_timeline_html(item['STATUS_ITEM'])}</td>",
+                        f"<td style='padding:6px; border-bottom:1px solid #e5e7eb; font-size:12px; white-space:nowrap'>{timeline_conteudo}</td>",
                         f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{data_ref_str}</td>",
                         f"<td style='padding:6px; border-bottom:1px solid #e5e7eb'>{eta_str}</td>",
                     ]
