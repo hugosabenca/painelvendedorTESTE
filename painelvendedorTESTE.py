@@ -1529,13 +1529,13 @@ def exibir_meus_pedidos():
 
                 cabecalho = (
                     "<tr style='color:#6b7280; text-align:left'>"
-                    "<th style='padding:6px; width:18%'>Produto</th>"
-                    "<th style='padding:6px; text-align:right; width:6%'>Tons</th>"
-                    "<th style='padding:6px; width:9%'>Lote</th>"
-                    "<th style='padding:6px; width:9%'>Lote MP</th>"
-                    "<th style='padding:6px; width:32%'>Linha do tempo</th>"
-                    "<th style='padding:6px; width:13%'>Prev. Ficar Pronto</th>"
-                    "<th style='padding:6px; width:13%'>Previsão de Chegada</th>"
+                    "<th style='padding:6px'>Produto</th>"
+                    "<th style='padding:6px; text-align:right; width:60px'>Tons</th>"
+                    "<th style='padding:6px; width:95px'>Lote</th>"
+                    "<th style='padding:6px; width:95px'>Lote MP</th>"
+                    "<th style='padding:6px; width:200px'>Linha do tempo</th>"
+                    "<th style='padding:6px; width:130px'>Prev. Ficar Pronto</th>"
+                    "<th style='padding:6px; width:130px'>Previsão de Chegada</th>"
                     "</tr>"
                 )
                 tabela_html = f"<table style='width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px'>{cabecalho}{linhas_html}</table>"
