@@ -1421,6 +1421,16 @@ def exibir_meus_pedidos():
         st.info("Não foi possível carregar os dados da Carteira no momento.")
         return
 
+    # Hoje só Pinheiral e SJ Bicas têm produção — as demais filiais são centros de distribuição
+    FILIAIS_COM_PRODUCAO = ["PINHEIRAL", "SJ BICAS"]
+    df_carteira = df_carteira[df_carteira['FILIAL'].astype(str).str.upper().isin(FILIAIS_COM_PRODUCAO)].copy()
+    if isinstance(df_faturados, pd.DataFrame) and not df_faturados.empty and 'FILIAL' in df_faturados.columns:
+        df_faturados = df_faturados[df_faturados['FILIAL'].astype(str).str.upper().isin(FILIAIS_COM_PRODUCAO)].copy()
+
+    if df_carteira.empty:
+        st.info("Nenhum pedido em aberto nas filiais com produção (Pinheiral / SJ Bicas).")
+        return
+
     filiais_unicas = sorted(df_carteira['FILIAL'].dropna().unique())
 
     filtro_vendedor = "Todos"
