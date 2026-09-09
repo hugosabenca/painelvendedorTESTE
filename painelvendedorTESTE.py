@@ -1535,8 +1535,8 @@ def exibir_meus_pedidos():
                     "<th style='padding:6px; width:95px'>Lote</th>"
                     "<th style='padding:6px; width:95px'>Lote MP</th>"
                     "<th style='padding:6px; width:200px'>Linha do tempo</th>"
-                    "<th style='padding:6px; width:130px'>Prev. Ficar Pronto</th>"
-                    "<th style='padding:6px; width:130px'>Previsão de Chegada</th>"
+                    "<th style='padding:6px; width:170px'>Prev. Ficar Pronto</th>"
+                    "<th style='padding:6px; width:170px'>Previsão de Chegada</th>"
                     "</tr>"
                 )
                 tabela_html = f"<table style='width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px'>{cabecalho}{linhas_html}</table>"
