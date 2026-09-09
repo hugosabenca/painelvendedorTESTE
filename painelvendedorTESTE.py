@@ -1543,7 +1543,10 @@ def exibir_meus_pedidos():
     # Traduz pedidos de transferência (CLIENTE = 'DOX BRASIL...') usando a perna
     # do pedido registrada em SAO PAULO — precisa acontecer ANTES de filtrar as filiais,
     # porque SAO PAULO é justamente a filial que vai ser removida a seguir.
+    # Aplica na Carteira E nos Faturados (mesmo mecanismo pode acontecer nos dois).
     df_carteira = _traduzir_pedidos_transferencia_dox(df_carteira)
+    if isinstance(df_faturados, pd.DataFrame) and not df_faturados.empty:
+        df_faturados = _traduzir_pedidos_transferencia_dox(df_faturados)
 
     # Hoje só Pinheiral e SJ Bicas têm produção — as demais filiais (incluindo SAO PAULO,
     # que já cumpriu seu papel na tradução acima) são removidas agora.
