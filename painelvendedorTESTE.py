@@ -1480,20 +1480,20 @@ def exibir_meus_pedidos():
                 partes = []
                 for i in range(4):
                     if i < idx_atual:
-                        circulo = "<div style='width:22px; height:22px; border-radius:50%; background:#e5e7eb; display:flex; align-items:center; justify-content:center; font-size:12px; color:#6b7280; margin:0 auto'>✓</div>"
+                        circulo = "<div style='width:20px; height:20px; border-radius:50%; background:#e5e7eb; display:flex; align-items:center; justify-content:center; font-size:11px; color:#6b7280; margin:0 auto'>✓</div>"
                         texto = ""
                     elif i == idx_atual:
-                        circulo = f"<div style='width:26px; height:26px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:14px; margin:0 auto'>{icones[i]}</div>"
-                        texto = f"<div style='font-size:12px; color:{cores[i]}; font-weight:600; margin-top:4px; white-space:nowrap; text-align:center'>{labels[i]}</div>"
+                        circulo = f"<div style='width:24px; height:24px; border-radius:50%; background:{cores[i]}; display:flex; align-items:center; justify-content:center; font-size:13px; margin:0 auto'>{icones[i]}</div>"
+                        texto = f"<div style='font-size:10px; line-height:1.2; color:{cores[i]}; font-weight:600; margin-top:3px; white-space:normal; text-align:center; word-break:break-word'>{labels[i]}</div>"
                     else:
-                        circulo = "<div style='width:22px; height:22px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb; margin:0 auto'></div>"
+                        circulo = "<div style='width:20px; height:20px; border-radius:50%; background:#f3f4f6; border:1px solid #e5e7eb; margin:0 auto'></div>"
                         texto = ""
 
-                    partes.append(f"<div style='flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; position:relative; overflow:visible'>{circulo}{texto}</div>")
+                    partes.append(f"<div style='flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center'>{circulo}{texto}</div>")
 
                     if i < 3:
                         linha_cor = "#d1d5db" if i >= idx_atual else "#9ca3af"
-                        partes.append(f"<div style='flex:0 0 20px; height:3px; background:{linha_cor}; margin-top:12px'></div>")
+                        partes.append(f"<div style='flex:0 0 12px; height:2px; background:{linha_cor}; margin-top:10px'></div>")
 
                 return f"<div style='display:flex; align-items:flex-start; width:100%'>{''.join(partes)}</div>"
 
@@ -1533,12 +1533,12 @@ def exibir_meus_pedidos():
                     "<th style='padding:6px; text-align:right'>Tons</th>"
                     "<th style='padding:6px'>Lote</th>"
                     "<th style='padding:6px'>Lote MP</th>"
-                    "<th style='padding:6px'>Linha do tempo</th>"
+                    "<th style='padding:6px; width:180px'>Linha do tempo</th>"
                     "<th style='padding:6px'>Prev. Ficar Pronto</th>"
                     "<th style='padding:6px'>Previsão de Chegada</th>"
                     "</tr>"
                 )
-                tabela_html = f"<table style='width:100%; border-collapse:collapse; font-size:13px'>{cabecalho}{linhas_html}</table>"
+                tabela_html = f"<table style='width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px'>{cabecalho}{linhas_html}</table>"
                 st.markdown(tabela_html, unsafe_allow_html=True)
 
     if qtd_exibida < total_filtrado:
