@@ -1240,7 +1240,7 @@ def _normalizar_cep_mp(cep):
 
 @st.cache_data(ttl="5m", show_spinner=False)
 def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_programados, df_ceps,
-                                  tipo_usuario, nome_filtro, filtro_vendedor):
+                                  tipo_usuario, nome_filtro, filtro_vendedor, filtro_filial):
     df_carteira = df_carteira.copy()
 
     if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
@@ -1265,6 +1265,11 @@ def _montar_pedidos_meus_pedidos(df_carteira, df_faturados, df_distancias, df_pr
             df_fat_f = df_faturados[mask_g | mask_v].copy()
         else:
             df_fat_f = df_faturados[df_faturados.get('VENDEDOR', pd.Series(dtype=str)).astype(str).str.lower().str.contains(nome_filtro.lower(), regex=False, na=False)].copy()
+
+    if filtro_filial != "Todos":
+        df_carteira_f = df_carteira_f[df_carteira_f['FILIAL'] == filtro_filial].copy()
+        if not df_fat_f.empty:
+            df_fat_f = df_fat_f[df_fat_f['FILIAL'] == filtro_filial].copy()
 
     if df_carteira_f.empty and df_fat_f.empty:
         return []
@@ -1416,14 +1421,22 @@ def exibir_meus_pedidos():
         st.info("Não foi possível carregar os dados da Carteira no momento.")
         return
 
+    filiais_unicas = sorted(df_carteira['FILIAL'].dropna().unique())
+
     filtro_vendedor = "Todos"
     if tipo_usuario in ["admin", "gerente", "master", "logística", "logistica", "pcp"]:
-        vendedores_unicos = sorted(df_carteira['VENDEDOR'].dropna().unique())
-        filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            vendedores_unicos = sorted(df_carteira['VENDEDOR'].dropna().unique())
+            filtro_vendedor = st.selectbox(f"Filtrar Vendedor ({tipo_usuario.capitalize()})", ["Todos"] + vendedores_unicos, key="mp_filtro_vend")
+        with col_f2:
+            filtro_filial = st.selectbox("Filtrar Filial", ["Todos"] + filiais_unicas, key="mp_filtro_filial")
+    else:
+        filtro_filial = st.selectbox("Filtrar Filial", ["Todos"] + filiais_unicas, key="mp_filtro_filial")
 
     pedidos_final = _montar_pedidos_meus_pedidos(
         df_carteira, df_faturados, df_distancias, df_programados, df_ceps,
-        tipo_usuario, nome_filtro, filtro_vendedor
+        tipo_usuario, nome_filtro, filtro_vendedor, filtro_filial
     )
 
     if not pedidos_final:
@@ -1459,6 +1472,7 @@ def exibir_meus_pedidos():
     for p in pedidos_ordenados[:qtd_exibida]:
         with st.container(border=True):
             st.markdown(f"**Pedido {p['PEDIDO']}** — {str(p['CLIENTE']).strip().title()}")
+            st.caption(f"Filial: {str(p['FILIAL']).strip().upper()}")
 
             if p['TRIANGULAR']:
                 st.caption(f"🔀 Entrega em: {str(p['CLIENTE_ENTREGA']).strip().title()} — {str(p['MUNICIPIO_ENTREGA']).strip().title()}/{p['UF_ENTREGA']}")
@@ -1467,8 +1481,6 @@ def exibir_meus_pedidos():
 
             if p['STATUS_TEXTO'] != "Faturado" and p['TEM_ITENS_FATURADOS']:
                 st.caption("✅ Parte deste pedido já foi faturada — veja o detalhe em 'Ver itens'.")
-
-            st.write(f"**Peso:** {formatar_peso_brasileiro(p['PESO_TOTAL'])} ton")
 
             def _timeline_html(status_txt):
                 etapas_internas = ["Aberto", "Programado", "Pronto", "Faturado"]
