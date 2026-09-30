@@ -35,9 +35,11 @@ ABAS_PINHEIRAL = ["FAGOR", "ESQUADROS", "MARAFON", "DIVIMEC 1 REBAIXAMENTO", "DI
 ABAS_BICAS = ["LCT Divimec", "LCT Ungerer", "LCL Divimec", "Divimec (RM)", "Servomaq", "Blanqueadeira", "Recorte", "Osciladora", "Maçarico"]
 
 try:
-    st.logo("logodox.png")
+    # Logo do canto superior só aparece depois do login (no login ela já fica no centro do cartão)
+    if st.session_state.get('logado', False):
+        st.logo("logodox.png")
 except Exception:
-    pass 
+    pass
 
 # ==============================================================================
 # 1. CONEXÃO GSPREAD OTIMIZADA ("Cofre Aberto")
@@ -2474,16 +2476,17 @@ if not st.session_state['logado']:
         try:
             with open("logodox.png", "rb") as f:
                 logo_b64 = base64.b64encode(f.read()).decode()
-            return f"<div style='text-align:center; margin: 8px 0 6px 0'><img src='data:image/png;base64,{logo_b64}' style='width:170px'></div>"
+            return f"<div style='text-align:center; margin: 4px 0 2px 0'><img src='data:image/png;base64,{logo_b64}' style='width:130px'></div>"
         except Exception:
             return "<div style='text-align:center; font-size:32px; font-weight:700; color:#1B6FE0; margin: 8px 0 6px 0'>DOX</div>"
+
+    # Reduz o espaço em branco do topo SÓ nas telas de login/solicitação
+    st.markdown("<style>.block-container {padding-top: 1.5rem !important; padding-bottom: 3rem !important;}</style>", unsafe_allow_html=True)
 
     # Coluna do meio = cartão centralizado
     _, col_card, _ = st.columns([1, 1.1, 1])
 
     with col_card:
-        st.markdown("<br>", unsafe_allow_html=True)
-
         with st.container(border=True):
             st.markdown(_logo_centralizada_html(), unsafe_allow_html=True)
 
@@ -2494,12 +2497,11 @@ if not st.session_state['logado']:
                 st.markdown("<div style='text-align:center; font-size:20px; font-weight:600; margin-top:6px'>Solicitação de acesso</div>", unsafe_allow_html=True)
                 st.markdown("<div style='text-align:center; font-size:14px; color:#6b7280; margin-bottom:12px'>Preencha seus dados. Seu acesso será liberado após aprovação.</div>", unsafe_allow_html=True)
 
-                with st.form("form_cadastro"):
+                with st.form("form_cadastro", border=False):
                     nome = st.text_input("Nome completo")
                     email = st.text_input("E-mail")
                     login = st.text_input("Crie um login")
                     senha = st.text_input("Crie uma senha", type="password")
-                    st.markdown("<br>", unsafe_allow_html=True)
                     btn_enviar = st.form_submit_button("Enviar solicitação", type="primary", use_container_width=True)
                     btn_voltar = st.form_submit_button("Voltar ao login", use_container_width=True)
 
@@ -2523,10 +2525,9 @@ if not st.session_state['logado']:
                 st.markdown("<div style='text-align:center; font-size:20px; font-weight:600; margin-top:6px'>Painel Dox</div>", unsafe_allow_html=True)
                 st.markdown("<div style='text-align:center; font-size:14px; color:#6b7280; margin-bottom:12px'>Inteligência Comercial</div>", unsafe_allow_html=True)
 
-                with st.form("form_login"):
+                with st.form("form_login", border=False):
                     u = st.text_input("Login", placeholder="Digite seu usuário").strip()
                     s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
-                    st.markdown("<br>", unsafe_allow_html=True)
                     btn_acessar = st.form_submit_button("Acessar", type="primary", use_container_width=True)
                     btn_solicitar = st.form_submit_button("Solicitar acesso", use_container_width=True)
 
