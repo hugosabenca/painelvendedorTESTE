@@ -2466,75 +2466,96 @@ if not st.session_state['logado']:
     <div class="assinatura-hugo">Criado por <b>Hugo Sabença</b></div>
     """, unsafe_allow_html=True)
     # =========================================================
-    if st.session_state['fazendo_cadastro']:
-        st.title("📝 Solicitação de Acesso")
-        with st.form("form_cadastro"):
-            nome = st.text_input("Nome Completo")
-            email = st.text_input("E-mail")
-            login = st.text_input("Crie um Login")
-            senha = st.text_input("Crie uma Senha", type="password")
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("Enviar Solicitação", type="primary", use_container_width=True):
-                if nome and email and login and senha:
-                    if salvar_nova_solicitacao(nome, email, login, senha): st.success("Solicitação enviada!")
-                else: st.warning("Preencha tudo.")
-            if c2.form_submit_button("Voltar", use_container_width=True): st.session_state['fazendo_cadastro'] = False; st.rerun()
-    else:
-        # =================================================================
-        # TELA DE LOGIN: ALINHADA À ESQUERDA E COMPACTA
-        # =================================================================
-        
-        # Cria duas colunas: A primeira estreita para o login, a segunda vazia para preencher o resto
-        col_login, col_vazia = st.columns([1, 2]) 
+    # =================================================================
+    # LOGO CENTRALIZADA (usada no login e na solicitação de acesso)
+    # =================================================================
+    import base64
+    def _logo_centralizada_html():
+        try:
+            with open("logodox.png", "rb") as f:
+                logo_b64 = base64.b64encode(f.read()).decode()
+            return f"<div style='text-align:center; margin: 8px 0 6px 0'><img src='data:image/png;base64,{logo_b64}' style='width:170px'></div>"
+        except Exception:
+            return "<div style='text-align:center; font-size:32px; font-weight:700; color:#1B6FE0; margin: 8px 0 6px 0'>DOX</div>"
 
-        with col_login:
-            st.markdown("<br>", unsafe_allow_html=True) 
-            st.title("🔒 Login - Painel Dox")
-            st.markdown("---")
-            
-            # 1. EMPACOTAMENTO: Cria o formulário para "travar" a sincronização
-            with st.form("form_login"):
-                # Inputs
-                u = st.text_input("Login", placeholder="Digite seu usuário").strip()
-                s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
-                
-                st.markdown("<br>", unsafe_allow_html=True)
+    # Coluna do meio = cartão centralizado
+    _, col_card, _ = st.columns([1, 1.1, 1])
 
-                # Botões viram submit_buttons
-                c_btn1, c_btn2 = st.columns(2)
-                with c_btn1:
+    with col_card:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        with st.container(border=True):
+            st.markdown(_logo_centralizada_html(), unsafe_allow_html=True)
+
+            if st.session_state['fazendo_cadastro']:
+                # =========================================================
+                # TELA: SOLICITAÇÃO DE ACESSO
+                # =========================================================
+                st.markdown("<div style='text-align:center; font-size:20px; font-weight:600; margin-top:6px'>Solicitação de acesso</div>", unsafe_allow_html=True)
+                st.markdown("<div style='text-align:center; font-size:14px; color:#6b7280; margin-bottom:12px'>Preencha seus dados. Seu acesso será liberado após aprovação.</div>", unsafe_allow_html=True)
+
+                with st.form("form_cadastro"):
+                    nome = st.text_input("Nome completo")
+                    email = st.text_input("E-mail")
+                    login = st.text_input("Crie um login")
+                    senha = st.text_input("Crie uma senha", type="password")
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    btn_enviar = st.form_submit_button("Enviar solicitação", type="primary", use_container_width=True)
+                    btn_voltar = st.form_submit_button("Voltar ao login", use_container_width=True)
+
+                if btn_enviar:
+                    if nome and email and login and senha:
+                        if salvar_nova_solicitacao(nome, email, login, senha):
+                            st.success("Solicitação enviada! Você será avisado quando o acesso for liberado.")
+                        else:
+                            st.error("Não foi possível enviar agora. Tente novamente em alguns segundos.")
+                    else:
+                        st.warning("Preencha todos os campos.")
+
+                if btn_voltar:
+                    st.session_state['fazendo_cadastro'] = False
+                    st.rerun()
+
+            else:
+                # =========================================================
+                # TELA: LOGIN
+                # =========================================================
+                st.markdown("<div style='text-align:center; font-size:20px; font-weight:600; margin-top:6px'>Painel Dox</div>", unsafe_allow_html=True)
+                st.markdown("<div style='text-align:center; font-size:14px; color:#6b7280; margin-bottom:12px'>Inteligência Comercial</div>", unsafe_allow_html=True)
+
+                with st.form("form_login"):
+                    u = st.text_input("Login", placeholder="Digite seu usuário").strip()
+                    s = st.text_input("Senha", type="password", placeholder="Digite sua senha").strip()
+                    st.markdown("<br>", unsafe_allow_html=True)
                     btn_acessar = st.form_submit_button("Acessar", type="primary", use_container_width=True)
-                with c_btn2:
-                    btn_solicitar = st.form_submit_button("Solicitar Acesso", use_container_width=True)
-            
-            # 2. LÓGICA DE VALIDAÇÃO: Fica FORA do 'with st.form', mas DENTRO da 'with col_login'
-            if btn_acessar:
-                # Validação
-                df = carregar_usuarios()
-                if df.empty: st.error("Erro de conexão.")
-                elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
-                else:
-                    try:
-                        user = df[(df['Login'].str.strip().str.lower() == u.lower()) & (df['Senha'].str.strip() == s)]
-                        if not user.empty:
-                            d = user.iloc[0]
-                            st.session_state.update({
-                                'logado': True, 
-                                'usuario_nome': d['Nome Vendedor'].split()[0], 
-                                'usuario_filtro': d['Nome Vendedor'], 
-                                'usuario_email': d.get('Email', ''), 
-                                'usuario_tipo': d['Tipo'],
-                                'usuario_login': d['Login']
-                            })
-                            registrar_acesso(u, d['Nome Vendedor'])
-                            st.rerun()
-                        else: st.error("Dados incorretos.")
-                    except Exception as e:
-                        st.error(f"Erro no login: {e}")
-            
-            if btn_solicitar:
-                st.session_state['fazendo_cadastro'] = True
-                st.rerun()
+                    btn_solicitar = st.form_submit_button("Solicitar acesso", use_container_width=True)
+
+                if btn_acessar:
+                    df = carregar_usuarios()
+                    if df.empty: st.error("Erro de conexão.")
+                    elif 'Login' not in df.columns or 'Senha' not in df.columns: st.error("Erro técnico.")
+                    else:
+                        try:
+                            user = df[(df['Login'].str.strip().str.lower() == u.lower()) & (df['Senha'].str.strip() == s)]
+                            if not user.empty:
+                                d = user.iloc[0]
+                                st.session_state.update({
+                                    'logado': True,
+                                    'usuario_nome': d['Nome Vendedor'].split()[0],
+                                    'usuario_filtro': d['Nome Vendedor'],
+                                    'usuario_email': d.get('Email', ''),
+                                    'usuario_tipo': d['Tipo'],
+                                    'usuario_login': d['Login']
+                                })
+                                registrar_acesso(u, d['Nome Vendedor'])
+                                st.rerun()
+                            else: st.error("Dados incorretos.")
+                        except Exception as e:
+                            st.error(f"Erro no login: {e}")
+
+                if btn_solicitar:
+                    st.session_state['fazendo_cadastro'] = True
+                    st.rerun()
 else:
     # =========================================================
     # FEEDBACK OBRIGATÓRIO (só vendedores e gerentes, uma única vez)
