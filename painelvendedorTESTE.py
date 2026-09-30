@@ -2481,7 +2481,7 @@ if not st.session_state['logado']:
             return "<div style='text-align:center; font-size:32px; font-weight:700; color:#1B6FE0; margin: 8px 0 6px 0'>DOX</div>"
 
     # Reduz o espaço em branco do topo SÓ nas telas de login/solicitação
-    st.markdown("<style>.block-container {padding-top: 2.7rem !important; padding-bottom: 3rem !important;}</style>", unsafe_allow_html=True)
+    st.markdown("<style>.block-container {padding-top: 2.5rem !important; padding-bottom: 3rem !important;}</style>", unsafe_allow_html=True)
 
     # Coluna do meio = cartão centralizado
     _, col_card, _ = st.columns([1, 1.1, 1])
