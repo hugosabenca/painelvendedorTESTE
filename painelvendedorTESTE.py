@@ -1247,7 +1247,7 @@ def _normalizar_cep_mp(cep):
         return ""
     return ''.join(filter(str.isdigit, str(cep)))
 
-@st.cache_data(ttl="5m", show_spinner=False)
+@st.cache_data(ttl="5m", show_spinner=False, max_entries=50)
 def _montar_pedidos_meus_pedidos(_df_carteira, _df_faturados, _df_distancias, _df_programados, _df_ceps,
                                   tipo_usuario, nome_filtro, filtro_vendedor, filtro_filial):
     df_carteira, df_faturados, df_distancias, df_programados, df_ceps = (
@@ -1707,42 +1707,95 @@ def exibir_meus_pedidos():
             st.session_state['mp_qtd_exibida'] += 25
             st.rerun()
 
-@st.dialog("🚀 Novidade no Painel Dox: Nova Aba 'Carteira'", width="large")
-def popup_aviso_carteira():
-    # Esse truque em HTML/CSS esconde o botão "X" (Close) no topo do pop-up
-    st.markdown(
-        """
+# =========================================================
+# FEEDBACK OBRIGATÓRIO DO PAINEL (vendedores e gerentes)
+# =========================================================
+TIPO_FEEDBACK_ATUAL = "Feedback_Set2026"  # troque esse nome para fazer uma nova pesquisa no futuro
+ABAS_FEEDBACK = ["Meus Pedidos", "Carteira", "Itens Programados", "Crédito",
+                 "Estoque", "Fotos RDQ", "Certificados", "Notas Fiscais"]
+
+def salvar_feedback_painel(login, nome, opiniao, abas_nao_usadas, sugestao):
+    try:
+        agora_br = datetime.now(FUSO_BR).strftime("%d/%m/%Y %H:%M:%S")
+        # Mesma ordem das 10 colunas da aba Feedback_Vendedores
+        nova_linha = pd.DataFrame([{
+            "Data": agora_br,
+            "Login": login,
+            "Nome": nome,
+            "Satisfacao": "",
+            "Dispositivo": "",
+            "Aba_Menos_Usada": "",
+            "Abas_Remover": abas_nao_usadas,
+            "Sugestao": sugestao,
+            "Tipo_Aviso": TIPO_FEEDBACK_ATUAL,
+            "Mensagem": opiniao
+        }])
+        if escrever_no_sheets(URL_SISTEMA, "Feedback_Vendedores", nova_linha, modo="append"):
+            carregar_feedbacks_avisos.clear()
+            return True
+        return False
+    except:
+        return False
+
+@st.dialog("💬 Sua opinião sobre o Painel Dox", width="large")
+def popup_feedback_painel():
+    # Esconde o botão "X" do topo da janela
+    st.markdown("""
         <style>
-            button[aria-label="Close"] {
-                display: none !important;
-            }
+            button[aria-label="Close"] { display: none !important; }
         </style>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    st.markdown(f"Olá, **{st.session_state['usuario_nome']}**! Tudo bem?")
-    st.markdown("Pensando sempre em facilitar o nosso dia a dia e dar cada vez mais autonomia e agilidade para vocês, informo que coloquei a nova aba **\"Carteira\"** no Painel Dox.")
-    st.markdown("Ela foi desenhada para ser o seu centro de controle de pedidos em aberto, mas com uma melhoria que vai mudar a forma como vocês acompanham:")
-    
-    st.info("Nós sabemos que historicamente sempre foi um 'ponto cego' e uma dificuldade enorme acompanhar os pedidos de transferência. Trabalhei em uma inteligência nova por trás do painel que agora **traduz automaticamente** esses pedidos. Ou seja, a partir de hoje, eles aparecerão normalmente na carteira de vocês, com as informações corretas.")
-    
-    st.markdown("**Importante:** Para que o foco seja 100% no acompanhamento da produção e faturamento, não incluí a filial de São Paulo nesta visão. A tela focará nas filiais produtivas (Pinheiral, Bicas, etc.).")
-    
-    st.markdown("A regra de ouro para ler a sua carteira de forma rápida é olhar a coluna **LOTE**:")
-    st.markdown("✅ **Coluna LOTE preenchida:** Significa que o material já está pronto.\n\n⏳ **Coluna LOTE vazia:** O material ainda está pendente de produção.")
-    st.markdown("* **E quando fica pronto?** Basta ir na aba ao lado, *Itens Programados*, e verificar a previsão de data que se encontra lá.\n* **E se não estiver nos Itens Programados?** Significa que o PCP ainda não realizou a programação daquele item na máquina. Dessa forma, inicialmente pode ser considerado o **Lead Time** informado no e-mail de prazo.")
-    
-    st.success("📥 **Bônus: Exportação para Excel**\n\nPara quem deseja fazer seus próprios filtros, adicionei um botão **'Baixar Tabela (Excel)'** no final das tabelas das abas *Carteira* e *Itens Programados*. Com um clique, você baixa os dados que estiver visualizando na tela, já formatados perfeitamente para o Excel.")
-    
-    st.markdown("O sistema já está atualizado. Acessem, façam seus testes e aproveitem! Espero de verdade que essa nova visão ajude a poupar o tempo de vocês. Qualquer dúvida, estou à disposição.")
-    
-    if st.button("👍 Entendi e estou ciente", type="primary", use_container_width=True):
-        # Registra na planilha avisando que ele viu a "Lancamento_Carteira"
-        registrar_ciencia_aviso(st.session_state['usuario_login'], st.session_state['usuario_nome'], "Lancamento_Carteira")
-        # Marca na sessão para não abrir de novo
-        st.session_state['viu_aviso_carteira'] = True
-        st.rerun()
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"Olá, **{st.session_state['usuario_nome'].title()}**! O Painel Dox é desenvolvido e mantido por mim (Hugo Sabença), dedicando tempo a cada melhoria.")
+    st.markdown("Pra saber se vale continuar investindo nele, e onde, preciso muito do seu retorno sincero. Leva menos de 1 minuto.")
+
+    # --- Item 1 ---
+    st.markdown("**1. O que você acha do Painel Dox?** :red[*]")
+    opiniao = st.text_area("Opinião", key="fb_opiniao", label_visibility="collapsed")
+
+    # --- Item 2 ---
+    st.markdown("**2. Quais abas você <u>NÃO</u> utiliza?** :red[*]", unsafe_allow_html=True)
+    st.caption("As abas pouco usadas serão retiradas do painel, deixando ele mais leve e rápido pra todo mundo. Se usa todas, marque a última opção.")
+    col_a, col_b = st.columns(2)
+    abas_marcadas = []
+    for i, aba in enumerate(ABAS_FEEDBACK):
+        with (col_a if i % 2 == 0 else col_b):
+            if st.checkbox(aba, key=f"fb_aba_{i}"):
+                abas_marcadas.append(aba)
+    usa_todas = st.checkbox("Uso todas as abas", key="fb_usa_todas")
+
+    # --- Item 3 ---
+    st.markdown("**3. O que você mudaria ou gostaria de ver no painel?** (opcional)")
+    sugestao = st.text_area("Sugestão", key="fb_sugestao", label_visibility="collapsed")
+
+    if st.button("Enviar feedback", type="primary", use_container_width=True):
+        erros = []
+        if not opiniao.strip():
+            erros.append("Escreva sua opinião no item 1.")
+        if not abas_marcadas and not usa_todas:
+            erros.append("No item 2, marque as abas que você não usa ou a opção 'Uso todas as abas'.")
+        if abas_marcadas and usa_todas:
+            erros.append("No item 2, você marcou abas e também 'Uso todas as abas'. Deixe só uma das opções.")
+
+        if erros:
+            for e in erros:
+                st.error(e)
+        else:
+            abas_txt = "Uso todas" if usa_todas else ", ".join(abas_marcadas)
+            ok = salvar_feedback_painel(
+                st.session_state['usuario_login'],
+                st.session_state['usuario_filtro'],
+                opiniao.strip(),
+                abas_txt,
+                sugestao.strip()
+            )
+            if ok:
+                st.session_state['respondeu_feedback'] = True
+                st.rerun()
+            else:
+                st.error("Não foi possível enviar agora. Tente novamente em alguns segundos.")
+
+    st.caption(":red[*] Campos obrigatórios")
 
 # --- DIALOG PARA EXIBIR TÍTULOS ---
 @st.dialog("Detalhes Financeiros", width="large")
@@ -2431,24 +2484,6 @@ if not st.session_state['logado']:
         # TELA DE LOGIN: ALINHADA À ESQUERDA E COMPACTA
         # =================================================================
         
-        # Força o botão "Acessar" (tipo primary do Streamlit, vermelho por padrão) a usar o azul da marca
-        st.markdown("""
-        <style>
-            button[kind="primary"],
-            button[data-testid="stBaseButton-primary"],
-            div[data-testid="stFormSubmitButton"] button[kind="primary"] {
-                background-color: #1B6FE0 !important;
-                border-color: #1B6FE0 !important;
-            }
-            button[kind="primary"]:hover,
-            button[data-testid="stBaseButton-primary"]:hover,
-            div[data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
-                background-color: #1558B0 !important;
-                border-color: #1558B0 !important;
-            }
-        </style>
-        """, unsafe_allow_html=True)
-
         # Cria duas colunas: A primeira estreita para o login, a segunda vazia para preencher o resto
         col_login, col_vazia = st.columns([1, 2]) 
 
@@ -2502,25 +2537,33 @@ if not st.session_state['logado']:
                 st.rerun()
 else:
     # =========================================================
-    # VERIFICAÇÃO DO POP-UP DE AVISO: NOVA ABA CARTEIRA
+    # FEEDBACK OBRIGATÓRIO (só vendedores e gerentes, uma única vez)
     # =========================================================
-    if 'viu_aviso_carteira' not in st.session_state:
-        df_avisos = obter_dados_persistentes("cache_avisos", carregar_feedbacks_avisos)
-        ja_viu = False
-        
-        if isinstance(df_avisos, pd.DataFrame) and not df_avisos.empty:
-            # Verifica se as colunas necessárias existem para não dar erro
-            if 'Login' in df_avisos.columns and 'Tipo_Aviso' in df_avisos.columns:
-                # Procura se já tem uma linha com o Login dele e o Tipo de Aviso "Lancamento_Carteira"
-                filtro = df_avisos[(df_avisos['Login'].str.lower() == st.session_state['usuario_login'].lower()) & 
-                                   (df_avisos['Tipo_Aviso'] == 'Lancamento_Carteira')]
-                if not filtro.empty:
-                    ja_viu = True
-        
-        if not ja_viu:
-            popup_aviso_carteira()
+    PERFIS_SEM_FEEDBACK = ["admin", "master", "logística", "logistica", "pcp", "manutenção", "manutencao", "qualidade"]
+
+    if 'respondeu_feedback' not in st.session_state:
+        if st.session_state['usuario_tipo'].lower() in PERFIS_SEM_FEEDBACK:
+            st.session_state['respondeu_feedback'] = True
         else:
-            st.session_state['viu_aviso_carteira'] = True
+            df_avisos = obter_dados_persistentes("cache_avisos", carregar_feedbacks_avisos)
+            ja_respondeu = False
+            if isinstance(df_avisos, pd.DataFrame) and not df_avisos.empty:
+                if 'Login' in df_avisos.columns and 'Tipo_Aviso' in df_avisos.columns:
+                    filtro = df_avisos[
+                        (df_avisos['Login'].astype(str).str.strip().str.lower() == st.session_state['usuario_login'].strip().lower()) &
+                        (df_avisos['Tipo_Aviso'] == TIPO_FEEDBACK_ATUAL)
+                    ]
+                    ja_respondeu = not filtro.empty
+
+            if ja_respondeu:
+                st.session_state['respondeu_feedback'] = True
+            else:
+                popup_feedback_painel()
+                # Trava o painel: nada abaixo carrega enquanto não responder
+                st.info("📝 Responda o formulário de feedback para acessar o Painel Dox.")
+                if st.button("Abrir formulário", key="btn_reabrir_feedback"):
+                    st.rerun()
+                st.stop()
     # =========================================================
 
     with st.sidebar:
